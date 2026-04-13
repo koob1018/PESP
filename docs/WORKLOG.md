@@ -65,3 +65,13 @@ This file records every scoped change made in this project.
 - 验证（中文）：已验证 code、west、arm-none-eabi-gcc 与 Zephyr SDK 编译器 arm-zephyr-eabi-gcc 可用。
 - Notes (EN): One interrupted install attempt was recovered by fixing SDK archive naming and completing setup in separate steps.
 - 备注（中文）：中途出现一次安装中断，已通过修正 SDK 包名并分步执行完成恢复。
+
+### [2026-04-14] Task: Relocate SDK and workspace paths to ~/softwares
+- Scope (EN): Directory relocation and environment variable retargeting only; no project code changes.
+- 范围（中文）：仅进行目录迁移与环境变量重定向；不改动项目代码。
+- Changes (EN): Moved pico-sdk, zephyrproject workspace, and zephyr-sdk-0.17.0 into ~/softwares; updated ~/.zshrc exports for PICO_SDK_PATH, ZEPHYR_BASE, and ZEPHYR_SDK_INSTALL_DIR.
+- 改动（中文）：将 pico-sdk、zephyrproject 工作区和 zephyr-sdk-0.17.0 全部迁移到 ~/softwares；更新 ~/.zshrc 中的 PICO_SDK_PATH、ZEPHYR_BASE、ZEPHYR_SDK_INSTALL_DIR。
+- Validation (EN): Confirmed new directories exist and toolchain commands still work (west, arm-none-eabi-gcc, arm-zephyr-eabi-gcc).
+- 验证（中文）：已确认新目录存在且工具链命令仍可用（west、arm-none-eabi-gcc、arm-zephyr-eabi-gcc）。
+- Notes (EN): Homebrew-managed binaries remain in /opt/homebrew and were not moved.
+- 备注（中文）：Homebrew 管理的可执行文件仍保留在 /opt/homebrew，未进行迁移。
