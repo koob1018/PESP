@@ -46,12 +46,12 @@ CMAKE_ASM_FLAGS_RELEASE:STRING=-g -O3 -DNDEBUG
 //Flags used by the ASM compiler during RELWITHDEBINFO builds.
 CMAKE_ASM_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
 
-//Choose the type of build, options are: 'Debug', 'Release', 'MinSizeRel',
-// 'RelWithDebInfo'.
-CMAKE_BUILD_TYPE:STRING=Release
+//Choose the type of build, options are: None Debug Release RelWithDebInfo
+// MinSizeRel ...
+CMAKE_BUILD_TYPE:STRING=Debug
 
-//CXX compiler
-CMAKE_CXX_COMPILER:STRING=/opt/homebrew/bin/arm-none-eabi-g++
+//C++ compiler
+CMAKE_CXX_COMPILER:FILEPATH=/opt/homebrew/bin/arm-none-eabi-g++
 
 //A wrapper around 'ar' adding the appropriate '--plugin' option
 // for the GCC compiler
@@ -77,7 +77,7 @@ CMAKE_CXX_FLAGS_RELEASE:STRING=-g -O3 -DNDEBUG
 CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
 
 //C compiler
-CMAKE_C_COMPILER:STRING=/opt/homebrew/bin/arm-none-eabi-gcc
+CMAKE_C_COMPILER:FILEPATH=/opt/homebrew/bin/arm-none-eabi-gcc
 
 //A wrapper around 'ar' adding the appropriate '--plugin' option
 // for the GCC compiler
