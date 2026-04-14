@@ -75,3 +75,53 @@ This file records every scoped change made in this project.
 - 验证（中文）：已确认新目录存在且工具链命令仍可用（west、arm-none-eabi-gcc、arm-zephyr-eabi-gcc）。
 - Notes (EN): Homebrew-managed binaries remain in /opt/homebrew and were not moved.
 - 备注（中文）：Homebrew 管理的可执行文件仍保留在 /opt/homebrew，未进行迁移。
+
+### [2026-04-14] Task: Split project into two minimal verification tasks
+- Scope (EN): Documentation only; no firmware feature changes.
+- 范围（中文）：仅更新文档；不改动固件功能。
+- Changes (EN): Added docs/test-plan.md with separate sensor-node and base-station verification tasks; added minimal endpoint READMEs in sensor-node/ and base-station/.
+- 改动（中文）：新增 docs/test-plan.md，将 sensor-node 与 base-station 的验证任务拆分；在 sensor-node/ 与 base-station/ 下补充最小说明文档。
+- Validation (EN): Confirmed the new documentation files exist in their respective endpoint or docs directories.
+- 验证（中文）：已确认新增文档文件存在于各自端目录或 docs 目录中。
+- Notes (EN): The two tasks remain independent and exclude business logic, communication, sensors, and drivers.
+- 备注（中文）：两个任务保持独立，且不包含业务逻辑、通信、传感器和驱动。
+
+### [2026-04-14] Task: Lock sensor-node RP2350A verification baseline
+- Scope (EN): sensor-node minimal verification baseline only; no protocol/sensor/event implementation.
+- 范围（中文）：仅固化 sensor-node 最小验证基线；不实现协议、传感器与事件逻辑。
+- Changes (EN): Rebuilt sensor-node for RP2350A using Pico board pico2 and platform rp2350-arm-s; added verified hardware model and build command to docs/test-plan.md.
+- 改动（中文）：以 RP2350A 为目标（Pico 板型 pico2，平台 rp2350-arm-s）重新完成 sensor-node 构建；并将已验证型号与编译命令写入 docs/test-plan.md。
+- Validation (EN): Build completed successfully and generated flashable outputs (sensor_node.uf2/elf/hex/bin).
+- 验证（中文）：构建成功并生成可烧录产物（sensor_node.uf2/elf/hex/bin）。
+- Notes (EN): Future hardware-specific tasks must ask for exact model/board details before implementation.
+- 备注（中文）：后续涉及硬件细节的任务，需先确认具体型号与板型后再实施。
+
+### [2026-04-14] Task: Verify base-station minimal Zephyr build on RP2350A
+- Scope (EN): base-station environment verification only; no protocol/driver/feature implementation.
+- 范围（中文）：仅进行 base-station 环境验证；不实现协议、驱动和功能逻辑。
+- Changes (EN): Built base-station with board target rpi_pico2/rp2350a/m33; recorded verified command, artifact list, and runner options in docs/test-plan.md.
+- 改动（中文）：以 rpi_pico2/rp2350a/m33 目标完成 base-station 构建；并将验证命令、产物清单与 runner 信息写入 docs/test-plan.md。
+- Validation (EN): Build succeeded and generated flashable artifacts (zephyr.uf2/elf/hex/bin).
+- 验证（中文）：构建成功并生成可烧录产物（zephyr.uf2/elf/hex/bin）。
+- Notes (EN): For this workspace state, unsetting ZEPHYR_SDK_INSTALL_DIR avoids a Zephyr SDK version compatibility check and allows gnuarmemb toolchain usage.
+- 备注（中文）：在当前环境中，先 unset ZEPHYR_SDK_INSTALL_DIR 可绕过 Zephyr SDK 版本兼容检查，并使用 gnuarmemb 工具链完成构建。
+
+### [2026-04-14] Task: Fix base-station no-output issue with USB CDC console
+- Scope (EN): base-station runtime visibility fix only; no protocol or business feature changes.
+- 范围（中文）：仅修复 base-station 运行可见性问题；不涉及协议或业务功能。
+- Changes (EN): Switched console setup to Zephyr 4.4 USB Device Stack Next + CDC ACM; added app.overlay to bind zephyr,console to cdc_acm_uart0; updated main to wait for DTR and print periodic heartbeat.
+- 改动（中文）：将控制台切换为 Zephyr 4.4 的 USB Device Stack Next + CDC ACM；新增 app.overlay 将 zephyr,console 绑定到 cdc_acm_uart0；main 改为等待 DTR 后输出并周期打印心跳。
+- Validation (EN): Rebuild succeeded for rpi_pico2/rp2350a/m33 and generated zephyr.uf2/zephyr.elf; Kconfig check confirms USB CDC console-related symbols are enabled.
+- 验证（中文）：在 rpi_pico2/rp2350a/m33 目标下重建成功并生成 zephyr.uf2/zephyr.elf；Kconfig 检查确认 USB CDC 控制台相关配置已生效。
+- Notes (EN): Previous no-output symptom was caused by using UART console defaults without external UART wiring.
+- 备注（中文）：此前“无输出”主要因为使用了 UART 控制台默认路径且未接外部 UART。
+
+### [2026-04-14] Task: Implement minimal one-way UART link validation
+- Scope (EN): Minimal UART communication test only; no frame/payload/checksum protocol and no sensor/event logic.
+- 范围（中文）：仅实现最小 UART 通信验证；不实现 frame/payload/checksum 协议，不涉及传感器和事件逻辑。
+- Changes (EN): sensor-node now initializes UART0 (GPIO0/1, 115200) and sends fixed "PING\n" periodically; base-station polls UART0 and prints received lines on USB console.
+- 改动（中文）：sensor-node 新增 UART0（GPIO0/1，115200）初始化并周期发送固定字符串 "PING\n"；base-station 轮询接收 UART0 字节并在 USB 控制台打印整行。
+- Validation (EN): Both endpoints rebuilt successfully and generated flashable artifacts (sensor_node.uf2, zephyr.uf2).
+- 验证（中文）：两端重建成功并生成可烧录产物（sensor_node.uf2、zephyr.uf2）。
+- Notes (EN): This step validates one-way link first, keeping implementation intentionally minimal.
+- 备注（中文）：本步骤先验证单向链路，保持最小实现。
