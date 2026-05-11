@@ -104,6 +104,8 @@ class DashboardState:
         "last_force": None,
         "threshold": None,
         "last_latched_ms": None,
+        "last_interrupt_ms": None,
+        "last_interrupt_text": None,
         "last_event_text": None,
         "events": [],
     })
@@ -175,6 +177,11 @@ class AppModel:
         events.insert(0, {"time": iso_now(), "text": text})
         del events[30:]
 
+    def record_interrupt_time(self) -> None:
+        if self.state.base["config"].get("interrupt", True):
+            self.state.interrupt["last_interrupt_ms"] = self.state.last_update_ms
+            self.state.interrupt["last_interrupt_text"] = self.state.last_update_text
+
     def apply_line(self, line: str) -> None:
         line = line.strip()
         if not line:
@@ -210,6 +217,7 @@ class AppModel:
             self.state.interrupt["state"] = "latched" if self.state.sensor["event"] else "idle"
             if self.state.sensor["event"]:
                 self.state.interrupt["last_latched_ms"] = self.state.last_update_ms
+                self.record_interrupt_time()
             return
 
         err_match = SAMPLE_ERR_RE.match(line)
@@ -231,6 +239,7 @@ class AppModel:
             self.state.interrupt["state"] = "latched" if self.state.sensor["event"] else "idle"
             if self.state.sensor["event"]:
                 self.state.interrupt["last_latched_ms"] = self.state.last_update_ms
+                self.record_interrupt_time()
             return
 
         link_match = LINK_RE.match(line)
@@ -247,6 +256,7 @@ class AppModel:
             elif command == "READ_EVENT":
                 self.state.base["read_event_count"] += 1
                 self.state.interrupt["last_event_text"] = "Base requested READ_EVENT"
+                self.record_interrupt_time()
                 self.add_event_log("base requested READ_EVENT")
             elif command == "CLEAR_EVENT":
                 self.state.base["clear_event_count"] += 1
@@ -284,6 +294,7 @@ class AppModel:
                 "last_latched_ms": self.state.last_update_ms,
                 "last_event_text": f"Latched force={force}, threshold={threshold}",
             })
+            self.record_interrupt_time()
             self.add_event_log(f"latched force={force}, threshold={threshold}")
             return
 
@@ -448,10 +459,46 @@ class GuiHandler(BaseHTTPRequestHandler):
                     self._send_json({"ok": True})
                 except RuntimeError as exc:
                     self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            elif path == "/api/config":
+                commands = self._build_config_commands(payload)
+                if not commands:
+                    self._send_json({"ok": False, "error": "no configuration fields provided"}, HTTPStatus.BAD_REQUEST)
+                    return
+                try:
+                    for command in commands:
+                        MONITOR.write_command(command)
+                    self._send_json({"ok": True, "commands": commands})
+                except RuntimeError as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
         except Exception as exc:  # noqa: BLE001 - HTTP boundary
             self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def _build_config_commands(self, payload: dict[str, Any]) -> list[str]:
+        commands: list[str] = []
+
+        if "force_threshold" in payload:
+            threshold = int(payload["force_threshold"])
+            if threshold < 0 or threshold > 4095:
+                raise ValueError("force threshold must be between 0 and 4095")
+            commands.append(f"SET_FORCE_THRESHOLD={threshold}")
+
+        if "sampling_ms" in payload:
+            sampling_ms = int(payload["sampling_ms"])
+            if sampling_ms < 100 or sampling_ms > 60000:
+                raise ValueError("sampling interval must be between 100 and 60000 ms")
+            commands.append(f"SET_SAMPLING_RATE={sampling_ms}")
+
+        if "interrupt" in payload:
+            interrupt = payload["interrupt"]
+            if not isinstance(interrupt, bool):
+                raise ValueError("interrupt must be true or false")
+            commands.append(f"ENABLE_INTERRUPT={1 if interrupt else 0}")
+
+        if commands:
+            commands.append("READ_CONFIG")
+        return commands
 
     def _read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))

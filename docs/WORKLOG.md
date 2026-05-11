@@ -259,9 +259,9 @@ This file records every scoped change made in this project.
 ### [2026-05-11] Task: Add host-side real-time GUI
 - Scope (EN): Host computer GUI only; firmware behavior is unchanged by this step.
 - 范围（中文）：仅新增上位机 GUI；本步骤不改动固件运行逻辑。
-- Changes (EN): Added `host-gui/`, a Python HTTP/SSE dashboard that reads the sensor-node USB serial console and displays current environment values, a single interrupt lamp indicator, and raw serial logs.
-- 改动（中文）：新增 `host-gui/`，用 Python HTTP/SSE 从 sensor-node USB 串口读取日志，并显示当前环境数据、一个中断状态灯和原始串口数据。
-- Validation (EN): Verified `host-gui/app.py` compiles, protocol tests pass 10/10, GUI API reports live serial data on `/dev/cu.usbmodem1101`, and the simplified browser page renders connected live values at `http://127.0.0.1:8765`.
-- 验证（中文）：已验证 `host-gui/app.py` 可编译、协议测试 10/10 通过、GUI API 能从 `/dev/cu.usbmodem1101` 读取实时数据，简洁版浏览器页面在 `http://127.0.0.1:8765` 正常渲染实时值。
+- Changes (EN): Added `host-gui/`, a Python HTTP/SSE dashboard that reads the sensor-node USB serial console and displays current environment values, a single interrupt lamp indicator, runtime configuration controls, and raw serial logs.
+- 改动（中文）：新增 `host-gui/`，用 Python HTTP/SSE 从 sensor-node USB 串口读取日志，并显示当前环境数据、一个中断状态灯、运行时配置控件和原始串口数据。
+- Validation (EN): Verified `host-gui/app.py` compiles, protocol tests pass 10/10, GUI API reports live serial data on `/dev/cu.usbmodem1101`, the simplified browser page renders connected live values at `http://127.0.0.1:8765`, and the GUI can apply FSR threshold, sampling interval, and interrupt enable changes at runtime.
+- 验证（中文）：已验证 `host-gui/app.py` 可编译、协议测试 10/10 通过、GUI API 能从 `/dev/cu.usbmodem1101` 读取实时数据，简洁版浏览器页面在 `http://127.0.0.1:8765` 正常渲染实时值，并可通过 GUI 运行时修改 FSR 阈值、采样周期和中断开关。
 - Notes (EN): BME680 temperature, humidity, and pressure are readable; gas remains reported as `ERR` by the current firmware/sensor state and is displayed explicitly by the GUI.
 - 备注（中文）：BME680 温度、湿度、气压可读；gas 仍由当前固件/传感器状态报告为 `ERR`，GUI 会如实显示。

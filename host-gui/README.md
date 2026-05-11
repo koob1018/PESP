@@ -18,7 +18,8 @@ http://127.0.0.1:8765
 ## What It Shows
 
 - Current environment values: temperature, humidity, pressure, light, gas status, and force.
-- Interrupt state as a single lamp indicator. The lamp stays red briefly after an event so base-station auto-clear does not hide short interrupts.
+- Last interrupt time only. FSR is displayed as a raw value; the GUI does not judge whether the value is triggered.
+- Runtime configuration controls for FSR threshold, sampling interval, and interrupt enable.
 - Raw serial data from the two-board run.
 
 The GUI reads the sensor-node USB console. The base-station image stays USB-headless; its activity is visible through the framed commands logged by sensor-node.

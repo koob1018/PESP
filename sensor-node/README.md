@@ -11,11 +11,15 @@ Pico SDK firmware for the room-monitoring sensor node.
 - Drive the dedicated event interrupt line on GPIO15.
 
 ## Key commands
-- USB maintenance commands:
+- USB maintenance/config commands:
   - `I2C_SCAN`
   - `BME_PROBE`
   - `BME_GAS_DEBUG`
   - `BASE_BOOTSEL`
+  - `READ_CONFIG`
+  - `SET_FORCE_THRESHOLD=<raw>`
+  - `SET_SAMPLING_RATE=<ms>`
+  - `ENABLE_INTERRUPT=<0|1>`
 - Framed UART commands:
 - `READ_ALL`
 - `READ_FORCE`

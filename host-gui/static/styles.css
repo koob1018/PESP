@@ -151,47 +151,20 @@ h2 {
   margin-bottom: 14px;
 }
 
-.interrupt-lamp {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  border-radius: 999px;
-  padding: 5px 12px;
-  border: 1px solid var(--line);
+.interrupt-time {
+  display: grid;
+  gap: 2px;
+  min-width: 116px;
+  text-align: right;
+}
+
+.interrupt-time span {
   color: var(--muted);
-  background: #f8fafc;
-  font-weight: 650;
+  font-size: 12px;
 }
 
-.lamp-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #9aa8b6;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
-}
-
-.interrupt-lamp.idle {
-  color: var(--green);
-  border-color: #a8dfc7;
-  background: #eaf8f1;
-}
-
-.interrupt-lamp.idle .lamp-dot {
-  background: var(--green);
-  box-shadow: 0 0 0 4px rgba(19, 132, 91, 0.12);
-}
-
-.interrupt-lamp.latched {
-  color: var(--red);
-  border-color: #f2b5b0;
-  background: #fff0ef;
-}
-
-.interrupt-lamp.latched .lamp-dot {
-  background: var(--red);
-  box-shadow: 0 0 0 5px rgba(192, 43, 36, 0.16), 0 0 18px rgba(192, 43, 36, 0.42);
+.interrupt-time strong {
+  font-size: 16px;
 }
 
 .metric-grid {
@@ -220,6 +193,58 @@ h2 {
   font-size: 28px;
   line-height: 1.1;
   overflow-wrap: anywhere;
+}
+
+.config-panel {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) auto auto auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.config-field label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.config-field input {
+  width: 100%;
+}
+
+.toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.toggle-field input {
+  min-height: auto;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--green);
+}
+
+.config-status {
+  align-self: center;
+  min-width: 78px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.config-status.ok {
+  color: var(--green);
+}
+
+.config-status.error {
+  color: var(--red);
 }
 
 .serial-panel {
@@ -263,7 +288,8 @@ h2 {
   }
 
   .main-grid,
-  .metric-grid {
+  .metric-grid,
+  .config-panel {
     grid-template-columns: 1fr;
   }
 

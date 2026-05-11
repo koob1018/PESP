@@ -263,6 +263,8 @@ static void send_base_bootsel_request(void) {
 }
 
 static void handle_usb_command(const char *cmd) {
+    uint32_t value;
+
     if (strcmp(cmd, "BASE_BOOTSEL") == 0 || strcmp(cmd, "BASE BOOTSEL") == 0) {
         send_base_bootsel_request();
     } else if (strcmp(cmd, "I2C_SCAN") == 0) {
@@ -271,6 +273,27 @@ static void handle_usb_command(const char *cmd) {
         print_bme_probe();
     } else if (strcmp(cmd, "BME_GAS_DEBUG") == 0) {
         print_bme_gas_debug();
+    } else if (strcmp(cmd, "READ_CONFIG") == 0) {
+        printf("[config] sampling_ms=%lu\n", (unsigned long)sampling_interval_ms);
+        printf("[config] force_threshold=%u\n", (unsigned)force_threshold);
+        printf("[config] interrupt=%u\n", interrupt_enabled ? 1U : 0U);
+    } else if (parse_u32_arg(cmd, "SET_SAMPLING_RATE=", &value)) {
+        if (value < MIN_SAMPLING_MS) {
+            value = MIN_SAMPLING_MS;
+        }
+        sampling_interval_ms = value;
+        printf("[config] sampling_ms=%lu\n", (unsigned long)sampling_interval_ms);
+    } else if (parse_u32_arg(cmd, "SET_FORCE_THRESHOLD=", &value)) {
+        if (value > 4095) {
+            value = 4095;
+        }
+        force_threshold = (uint16_t)value;
+        force_was_high = latest_force >= force_threshold;
+        printf("[config] force_threshold=%u\n", (unsigned)force_threshold);
+    } else if (parse_u32_arg(cmd, "ENABLE_INTERRUPT=", &value)) {
+        interrupt_enabled = value != 0;
+        update_event_irq_pin();
+        printf("[config] interrupt=%u\n", interrupt_enabled ? 1U : 0U);
     } else if (strcmp(cmd, "PING") == 0) {
         printf("[maint] PONG\n");
     } else if (cmd[0] != '\0') {

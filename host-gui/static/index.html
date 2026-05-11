@@ -27,9 +27,9 @@
         <section class="panel environment-panel">
           <div class="panel-title">
             <h2>Current Environment</h2>
-            <div id="interruptLamp" class="interrupt-lamp idle" aria-label="Interrupt state">
-              <span class="lamp-dot"></span>
-              <span id="interruptText">idle</span>
+            <div class="interrupt-time">
+              <span>Last interrupt</span>
+              <strong id="lastInterruptValue">--</strong>
             </div>
           </div>
 
@@ -59,6 +59,23 @@
               <strong id="forceValue">--</strong>
             </div>
           </div>
+
+          <form id="configForm" class="config-panel">
+            <div class="config-field">
+              <label for="thresholdInput">FSR threshold</label>
+              <input id="thresholdInput" type="text" inputmode="numeric" pattern="[0-9]*" value="1000">
+            </div>
+            <div class="config-field">
+              <label for="samplingInput">Sampling</label>
+              <input id="samplingInput" type="text" inputmode="numeric" pattern="[0-9]*" value="2000">
+            </div>
+            <label class="toggle-field" for="interruptToggle">
+              <input id="interruptToggle" type="checkbox" checked>
+              <span>Interrupt</span>
+            </label>
+            <button id="applyConfigBtn" type="submit">Apply</button>
+            <span id="configStatus" class="config-status">ready</span>
+          </form>
         </section>
 
         <section class="panel serial-panel">

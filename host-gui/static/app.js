@@ -1,5 +1,6 @@
 const els = {};
 const rawLines = [];
+let configDirty = false;
 
 function $(id) {
   return document.getElementById(id);
@@ -21,16 +22,6 @@ function setStatus(connected, status) {
   els.statusPill.classList.toggle("offline", !connected);
 }
 
-function setInterruptLamp(interrupt) {
-  const latched = interrupt && interrupt.state === "latched";
-  const recent = !latched && interrupt && interrupt.last_latched_ms &&
-    (Date.now() - interrupt.last_latched_ms < 5000);
-  const active = latched || recent;
-  els.interruptLamp.classList.toggle("latched", active);
-  els.interruptLamp.classList.toggle("idle", !active);
-  els.interruptText.textContent = latched ? "interrupt" : (recent ? "recent" : "idle");
-}
-
 function updateState(state) {
   setStatus(state.connected, state.status);
 
@@ -50,6 +41,7 @@ function updateState(state) {
     : "waiting for serial data";
 
   const sensor = state.sensor || {};
+  const cfg = (state.base && state.base.config) || {};
   els.tempValue.textContent = fixed(sensor.temperature_c, 2, " C");
   els.humidityValue.textContent = fixed(sensor.humidity_pct, 2, "%");
   els.pressureValue.textContent = fixed(sensor.pressure_pa, 0, " Pa");
@@ -59,11 +51,29 @@ function updateState(state) {
     ? text(sensor.gas_ohms, " ohm")
     : (sensor.gas_status === "err" ? "not ready" : "--");
 
-  setInterruptLamp(state.interrupt || {});
+  els.lastInterruptValue.textContent = (state.interrupt && state.interrupt.last_interrupt_text) || "--";
+  updateConfigControls(cfg);
 
   if (Array.isArray(state.raw_lines) && state.raw_lines.length && rawLines.length === 0) {
     rawLines.push(...state.raw_lines.slice(-180));
     renderLog();
+  }
+}
+
+function updateConfigControls(cfg) {
+  if (configDirty) return;
+
+  if (cfg.force_threshold !== null && cfg.force_threshold !== undefined &&
+      document.activeElement !== els.thresholdInput) {
+    els.thresholdInput.value = cfg.force_threshold;
+  }
+  if (cfg.sampling_ms !== null && cfg.sampling_ms !== undefined &&
+      document.activeElement !== els.samplingInput) {
+    els.samplingInput.value = cfg.sampling_ms;
+  }
+  if (cfg.interrupt !== null && cfg.interrupt !== undefined &&
+      document.activeElement !== els.interruptToggle) {
+    els.interruptToggle.checked = Boolean(cfg.interrupt);
   }
 }
 
@@ -111,6 +121,40 @@ async function postJson(path, body) {
   return payload;
 }
 
+function setConfigStatus(text, mode = "") {
+  els.configStatus.textContent = text;
+  els.configStatus.classList.toggle("ok", mode === "ok");
+  els.configStatus.classList.toggle("error", mode === "error");
+}
+
+async function applyConfig(event) {
+  event.preventDefault();
+
+  const forceThreshold = Number(els.thresholdInput.value);
+  const samplingMs = Number(els.samplingInput.value);
+  if (!Number.isInteger(forceThreshold) || forceThreshold < 0 || forceThreshold > 4095) {
+    setConfigStatus("threshold 0-4095", "error");
+    return;
+  }
+  if (!Number.isInteger(samplingMs) || samplingMs < 100 || samplingMs > 60000) {
+    setConfigStatus("sampling 100-60000", "error");
+    return;
+  }
+
+  setConfigStatus("applying");
+  const payload = await postJson("/api/config", {
+    force_threshold: forceThreshold,
+    sampling_ms: samplingMs,
+    interrupt: els.interruptToggle.checked,
+  });
+  setConfigStatus(payload.ok ? "applied" : "failed", payload.ok ? "ok" : "error");
+  if (payload.ok) {
+    setTimeout(() => {
+      configDirty = false;
+    }, 1800);
+  }
+}
+
 function connectEvents() {
   const source = new EventSource("/events");
   source.onmessage = (message) => {
@@ -125,7 +169,8 @@ async function init() {
   [
     "portSelect", "baudInput", "connectBtn", "disconnectBtn", "statusPill",
     "lastUpdate", "tempValue", "humidityValue", "pressureValue", "lightValue",
-    "gasValue", "forceValue", "interruptLamp", "interruptText", "rawLog", "clearLogBtn",
+    "gasValue", "forceValue", "lastInterruptValue", "rawLog", "clearLogBtn",
+    "configForm", "thresholdInput", "samplingInput", "interruptToggle", "configStatus",
   ].forEach((id) => {
     els[id] = $(id);
   });
@@ -145,6 +190,18 @@ async function init() {
     rawLines.length = 0;
     renderLog();
   });
+  [els.thresholdInput, els.samplingInput, els.interruptToggle].forEach((control) => {
+    control.addEventListener("input", () => {
+      configDirty = true;
+      setConfigStatus("editing");
+    });
+    control.addEventListener("change", () => {
+      configDirty = true;
+      setConfigStatus("editing");
+    });
+  });
+  els.configForm.addEventListener("submit", applyConfig);
+  postJson("/api/command", { command: "READ_CONFIG" });
 
   setInterval(refreshPorts, 10000);
   setInterval(async () => {

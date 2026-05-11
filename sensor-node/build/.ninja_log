@@ -174,3 +174,13 @@
 221	397	1778520506814203361	/Users/yiwenxu/Projects/coursework/PESP/sensor-node/build/sensor_node.hex	817c7722293c1ea8
 221	397	1778520506814203361	/Users/yiwenxu/Projects/coursework/PESP/sensor-node/build/sensor_node.bin	817c7722293c1ea8
 221	397	1778520506814203361	/Users/yiwenxu/Projects/coursework/PESP/sensor-node/build/sensor_node.uf2	817c7722293c1ea8
+20	259	1778531424528094983	CMakeFiles/sensor_node.dir/src/main.c.o	123d9a05ed97e3a1
+259	442	1778531424949820716	sensor_node.elf	817c7722293c1ea8
+259	442	1778531424949820716	sensor_node.dis	817c7722293c1ea8
+259	442	1778531424949820716	sensor_node.hex	817c7722293c1ea8
+259	442	1778531424949820716	sensor_node.bin	817c7722293c1ea8
+259	442	1778531424949820716	sensor_node.uf2	817c7722293c1ea8
+259	442	1778531424949820716	/Users/yiwenxu/Projects/coursework/PESP/sensor-node/build/sensor_node.dis	817c7722293c1ea8
+259	442	1778531424949820716	/Users/yiwenxu/Projects/coursework/PESP/sensor-node/build/sensor_node.hex	817c7722293c1ea8
+259	442	1778531424949820716	/Users/yiwenxu/Projects/coursework/PESP/sensor-node/build/sensor_node.bin	817c7722293c1ea8
+259	442	1778531424949820716	/Users/yiwenxu/Projects/coursework/PESP/sensor-node/build/sensor_node.uf2	817c7722293c1ea8
