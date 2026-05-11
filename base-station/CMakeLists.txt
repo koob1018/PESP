@@ -5,4 +5,7 @@ project(base_station)
 
 target_sources(app PRIVATE
     src/main.c
+    src/driver/sensor_node_driver.c
 )
+
+target_include_directories(app PRIVATE src)

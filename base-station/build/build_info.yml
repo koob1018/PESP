@@ -56,6 +56,6 @@ cmake:
     zephyr-base: '/Users/yiwenxu/softwares/zephyrproject/zephyr'
 version: '0.1.0'
 west:
-  command: '/Users/yiwenxu/Library/Python/3.14/lib/python/site-packages/west/__main__.py build -b rpi_pico2/rp2350a/m33 -s . -d build -- -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb -DGNUARMEMB_TOOLCHAIN_PATH=/opt/homebrew'
+  command: '/Users/yiwenxu/Library/Python/3.14/bin/west build -p always -b rpi_pico2/rp2350a/m33 -s base-station -d base-station/build -- -UZEPHYR_SDK_INSTALL_DIR -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb -DGNUARMEMB_TOOLCHAIN_PATH=/opt/homebrew'
   topdir: '/Users/yiwenxu/softwares/zephyrproject'
   version: '1.5.0'

@@ -1,0 +1,277 @@
+:root {
+  color-scheme: light;
+  --bg: #f3f5f7;
+  --panel: #ffffff;
+  --ink: #161d25;
+  --muted: #65717e;
+  --line: #d9e0e7;
+  --green: #13845b;
+  --red: #c02b24;
+  --amber: #a86600;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+select,
+input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--ink);
+  min-height: 38px;
+}
+
+button {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #9aa8b6;
+}
+
+select,
+input {
+  padding: 8px 10px;
+}
+
+.app-shell {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 18px;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+.subtle {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.connection {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connection label {
+  color: var(--muted);
+}
+
+#portSelect {
+  min-width: 250px;
+}
+
+#baudInput {
+  width: 108px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--muted);
+  background: #f8fafc;
+}
+
+.status-pill.online {
+  color: var(--green);
+  background: #eaf8f1;
+  border-color: #a8dfc7;
+}
+
+.status-pill.offline {
+  color: var(--red);
+  background: #fff0ef;
+  border-color: #f2b5b0;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+  gap: 14px;
+  min-height: calc(100vh - 116px);
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.interrupt-lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: #f8fafc;
+  font-weight: 650;
+}
+
+.lamp-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #9aa8b6;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.interrupt-lamp.idle {
+  color: var(--green);
+  border-color: #a8dfc7;
+  background: #eaf8f1;
+}
+
+.interrupt-lamp.idle .lamp-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(19, 132, 91, 0.12);
+}
+
+.interrupt-lamp.latched {
+  color: var(--red);
+  border-color: #f2b5b0;
+  background: #fff0ef;
+}
+
+.interrupt-lamp.latched .lamp-dot {
+  background: var(--red);
+  box-shadow: 0 0 0 5px rgba(192, 43, 36, 0.16), 0 0 18px rgba(192, 43, 36, 0.42);
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.metric {
+  min-height: 104px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 13px;
+}
+
+.metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 12px;
+  font-size: 28px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.serial-panel {
+  display: flex;
+  min-height: 520px;
+  flex-direction: column;
+}
+
+#rawLog {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  border: 1px solid #202b36;
+  border-radius: 8px;
+  background: #111821;
+  color: #d9f0e5;
+  padding: 14px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .connection {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .connection {
+    justify-content: flex-start;
+  }
+
+  #portSelect,
+  #baudInput,
+  .connection button {
+    width: 100%;
+  }
+
+  .main-grid,
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .main-grid {
+    min-height: auto;
+  }
+
+  .serial-panel {
+    min-height: 460px;
+  }
+}

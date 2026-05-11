@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PESP Host GUI</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>PESP Host GUI</h1>
+          <p id="lastUpdate" class="subtle">waiting for serial data</p>
+        </div>
+        <div class="connection">
+          <label for="portSelect">Serial</label>
+          <select id="portSelect"></select>
+          <input id="baudInput" type="number" value="115200" min="9600" step="9600" aria-label="Baud rate">
+          <button id="connectBtn" type="button">Connect</button>
+          <button id="disconnectBtn" type="button">Disconnect</button>
+          <span id="statusPill" class="status-pill offline">Disconnected</span>
+        </div>
+      </header>
+
+      <section class="main-grid">
+        <section class="panel environment-panel">
+          <div class="panel-title">
+            <h2>Current Environment</h2>
+            <div id="interruptLamp" class="interrupt-lamp idle" aria-label="Interrupt state">
+              <span class="lamp-dot"></span>
+              <span id="interruptText">idle</span>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric">
+              <span>Temperature</span>
+              <strong id="tempValue">--</strong>
+            </div>
+            <div class="metric">
+              <span>Humidity</span>
+              <strong id="humidityValue">--</strong>
+            </div>
+            <div class="metric">
+              <span>Pressure</span>
+              <strong id="pressureValue">--</strong>
+            </div>
+            <div class="metric">
+              <span>Light</span>
+              <strong id="lightValue">--</strong>
+            </div>
+            <div class="metric">
+              <span>Gas</span>
+              <strong id="gasValue">--</strong>
+            </div>
+            <div class="metric">
+              <span>Force</span>
+              <strong id="forceValue">--</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel serial-panel">
+          <div class="panel-title">
+            <h2>Serial Data</h2>
+            <button id="clearLogBtn" type="button">Clear</button>
+          </div>
+          <pre id="rawLog" aria-live="polite"></pre>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -11,10 +11,22 @@ pico_sdk_init()
 
 add_executable(sensor_node
     src/main.c
+    src/bme680_min.c
+    src/veml7700_min.c
 )
 
 target_link_libraries(sensor_node
     pico_stdlib
+)
+
+# enable ADC hardware include/library for reading GPIO26/ADC0
+target_link_libraries(sensor_node
+    hardware_adc
+)
+
+# enable I2C hardware
+target_link_libraries(sensor_node
+    hardware_i2c
 )
 
 # TODO: Select USB/UART stdio according to the final board debug setup.

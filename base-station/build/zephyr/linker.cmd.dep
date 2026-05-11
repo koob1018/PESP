@@ -80,12 +80,10 @@ linker.cmd: \
  /Users/yiwenxu/softwares/zephyrproject/zephyr/include/../arch/common/ramfunc.ld \
  /Users/yiwenxu/Projects/coursework/PESP/base-station/build/zephyr/include/generated/snippets-ramfunc-section.ld \
  /Users/yiwenxu/Projects/coursework/PESP/base-station/build/zephyr/include/generated/snippets-rwdata.ld \
- /Users/yiwenxu/softwares/zephyrproject/zephyr/include/../modules/hal_rpi_pico/timecritical.ld \
  /Users/yiwenxu/softwares/zephyrproject/zephyr/include/zephyr/linker/common-ram.ld \
  /Users/yiwenxu/softwares/zephyrproject/zephyr/include/zephyr/linker/kobject-data.ld \
  /Users/yiwenxu/softwares/zephyrproject/zephyr/include/zephyr/linker/cplusplus-ram.ld \
  /Users/yiwenxu/Projects/coursework/PESP/base-station/build/zephyr/include/generated/snippets-data-sections.ld \
- /Users/yiwenxu/softwares/zephyrproject/zephyr/include/../subsys/usb/device_next/usbd_data.ld \
  /Users/yiwenxu/Projects/coursework/PESP/base-station/build/zephyr/include/generated/snippets-sections.ld \
  /Users/yiwenxu/softwares/zephyrproject/zephyr/include/zephyr/linker/intlist.ld \
  /Users/yiwenxu/softwares/zephyrproject/zephyr/include/zephyr/linker/debug-sections.ld \

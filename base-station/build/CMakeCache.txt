@@ -124,8 +124,8 @@ CMAKE_CXX_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
 //Flags used by the CXX compiler during RELWITHDEBINFO builds.
 CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
 
-//C compiler
-CMAKE_C_COMPILER:STRING=/opt/homebrew/bin/arm-none-eabi-gcc
+//Path to a program.
+CMAKE_C_COMPILER:FILEPATH=/opt/homebrew/bin/arm-none-eabi-gcc
 
 //A wrapper around 'ar' adding the appropriate '--plugin' option
 // for the GCC compiler
@@ -528,8 +528,6 @@ CMAKE_CXX_FLAGS_MINSIZEREL-ADVANCED:INTERNAL=1
 CMAKE_CXX_FLAGS_RELEASE-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_CXX_FLAGS_RELWITHDEBINFO
 CMAKE_CXX_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
-//ADVANCED property for variable: CMAKE_C_COMPILER
-CMAKE_C_COMPILER-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_C_COMPILER_AR
 CMAKE_C_COMPILER_AR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_C_COMPILER_RANLIB
@@ -592,7 +590,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_NM
 CMAKE_NM-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=203
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=197
 //ADVANCED property for variable: CMAKE_OBJCOPY
 CMAKE_OBJCOPY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_OBJDUMP
@@ -662,6 +660,8 @@ _Python3_EXECUTABLE:INTERNAL=/Library/Frameworks/Python.framework/Versions/3.14/
 //Python3 Properties
 _Python3_INTERPRETER_PROPERTIES:INTERNAL=Python;3;14;4;64;<none>;cpython-314-darwin.so;abi3;/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14;/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14;/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages;/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages
 _Python3_INTERPRETER_SIGNATURE:INTERNAL=cc496f4dc1de7545e3dcdfb2eb4f2d44
+//Interpreter reason failure
+_Python3_Interpreter_REASON_FAILURE:INTERNAL=
 //NumPy reason failure
 _Python3_NumPy_REASON_FAILURE:INTERNAL=
 //Result of TRY_COMPILE
