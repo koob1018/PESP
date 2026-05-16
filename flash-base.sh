@@ -3,8 +3,12 @@ set -euo pipefail
 
 FIRMWARE="${1:-base-station/build/zephyr/zephyr.uf2}"
 BASE_SER="${BASE_SER:-3CFF0B54ACC69F66}"
-SENSOR_PORT="${SENSOR_PORT:-/dev/cu.usbmodem1101}"
+SENSOR_PORT="${SENSOR_PORT:-}"
 PICOTOOL="${PICOTOOL:-picotool}"
+
+if [ -z "$SENSOR_PORT" ]; then
+  SENSOR_PORT="$(ls /dev/cu.usbmodem* 2>/dev/null | head -n 1 || true)"
+fi
 
 if [ ! -f "$FIRMWARE" ]; then
   echo "Firmware not found: $FIRMWARE"

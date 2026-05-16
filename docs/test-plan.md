@@ -41,7 +41,7 @@ Verify that the Pico SDK project can build, flash, and run with only a minimal m
 - Verified configure/build command:
 
 ```bash
-cd /Users/yiwenxu/Projects/coursework/PESP/base-station
+cd PESP/base-station
 rm -rf build
 unset ZEPHYR_SDK_INSTALL_DIR
 python3 -m west build -b rpi_pico2/rp2350a/m33 -s . -d build \
@@ -63,9 +63,9 @@ python3 -m west build -b rpi_pico2/rp2350a/m33 -s . -d build \
 - Verified configure/build command:
 
 ```bash
-cd /Users/yiwenxu/Projects/coursework/PESP/sensor-node
+cd PESP/sensor-node
 rm -rf build
-PICO_SDK_PATH=/Users/yiwenxu/softwares/pico-sdk cmake -S . -B build -G Ninja \
+PICO_SDK_PATH=/path/to/pico-sdk cmake -S . -B build -G Ninja \
 	-DCMAKE_C_COMPILER=/opt/homebrew/bin/arm-none-eabi-gcc \
 	-DCMAKE_CXX_COMPILER=/opt/homebrew/bin/arm-none-eabi-g++ \
 	-DPICO_PLATFORM=rp2350 \

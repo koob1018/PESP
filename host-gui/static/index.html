@@ -3,19 +3,19 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PESP Host GUI</title>
+    <title>Smart Exhibit Case Guardian</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>PESP Host GUI</h1>
+        <div class="brand">
+          <p class="eyebrow">PESP two-board demo</p>
+          <h1>Smart Exhibit Case Guardian</h1>
           <p id="lastUpdate" class="subtle">waiting for serial data</p>
         </div>
         <div class="connection">
-          <label for="portSelect">Serial</label>
-          <select id="portSelect"></select>
+          <select id="portSelect" aria-label="Serial port"></select>
           <input id="baudInput" type="number" value="115200" min="9600" step="9600" aria-label="Baud rate">
           <button id="connectBtn" type="button">Connect</button>
           <button id="disconnectBtn" type="button">Disconnect</button>
@@ -23,69 +23,205 @@
         </div>
       </header>
 
-      <section class="main-grid">
-        <section class="panel environment-panel">
+      <section id="caseStatusCard" class="status-band status-attention">
+        <div class="status-main">
+          <span class="label">Case Status</span>
+          <strong id="caseStatusValue">Attention</strong>
+          <p id="caseStatusReason">Waiting for sensor data</p>
+        </div>
+        <div class="status-facts">
+          <div>
+            <span>Protection</span>
+            <strong id="protectionModeValue">--</strong>
+          </div>
+          <div>
+            <span>Last Interrupt</span>
+            <strong id="lastInterruptValue">--</strong>
+          </div>
+          <div>
+            <span>Event Latch</span>
+            <strong id="tamperStateValue">--</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel readings-panel">
+        <div class="panel-title">
+          <div>
+            <h2>Current Case Readings</h2>
+            <p id="environmentStatus" class="panel-note">Environment sensor status unknown</p>
+          </div>
+        </div>
+        <div class="metric-grid">
+          <div class="metric">
+            <span>Temperature</span>
+            <strong id="tempValue">--</strong>
+          </div>
+          <div class="metric">
+            <span>Humidity</span>
+            <strong id="humidityValue">--</strong>
+          </div>
+          <div class="metric">
+            <span>Pressure</span>
+            <strong id="pressureValue">--</strong>
+          </div>
+          <div class="metric">
+            <span>Gas / VOC Proxy</span>
+            <strong id="gasValue">--</strong>
+            <small id="gasStatus">waiting</small>
+          </div>
+          <div class="metric metric-with-chip">
+            <span>Light Raw</span>
+            <strong id="lightValue">--</strong>
+            <small id="lightStatus" class="state-chip">--</small>
+          </div>
+          <div class="metric">
+            <span>Force Raw</span>
+            <strong id="forceValue">--</strong>
+            <small>threshold <b id="thresholdValue">--</b></small>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel trends-panel">
+        <div class="panel-title">
+          <div>
+            <h2>Recent Trends</h2>
+            <p class="panel-note">Three-minute sensor history</p>
+          </div>
+        </div>
+        <div class="trend-grid">
+          <div class="trend-card">
+            <div class="trend-head"><span>Temperature</span><strong id="trendTempNow">--</strong></div>
+            <canvas id="trendTemp"></canvas>
+          </div>
+          <div class="trend-card">
+            <div class="trend-head"><span>Humidity</span><strong id="trendHumidityNow">--</strong></div>
+            <canvas id="trendHumidity"></canvas>
+          </div>
+          <div class="trend-card">
+            <div class="trend-head"><span>Light Raw</span><strong id="trendLightNow">--</strong></div>
+            <canvas id="trendLight"></canvas>
+          </div>
+          <div class="trend-card">
+            <div class="trend-head"><span>Force Raw</span><strong id="trendForceNow">--</strong></div>
+            <canvas id="trendForce"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="lower-grid">
+        <section class="panel config-panel">
           <div class="panel-title">
-            <h2>Current Environment</h2>
-            <div class="interrupt-time">
-              <span>Last interrupt</span>
-              <strong id="lastInterruptValue">--</strong>
+            <div>
+              <h2>Runtime Configuration</h2>
+              <p class="panel-note">Sensitivity, rate, and protection mode</p>
             </div>
+            <button id="readConfigBtn" type="button">Read</button>
           </div>
 
-          <div class="metric-grid">
-            <div class="metric">
-              <span>Temperature</span>
-              <strong id="tempValue">--</strong>
+          <form id="configForm" class="config-form">
+            <div class="config-row">
+              <label for="sensitivitySelect">Tamper Sensitivity</label>
+              <select id="sensitivitySelect">
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="custom">Custom</option>
+              </select>
             </div>
-            <div class="metric">
-              <span>Humidity</span>
-              <strong id="humidityValue">--</strong>
+            <div class="config-row">
+              <label for="rateSelect">Monitoring Rate</label>
+              <select id="rateSelect">
+                <option value="fast">Fast</option>
+                <option value="normal">Normal</option>
+                <option value="slow">Slow</option>
+                <option value="custom">Custom</option>
+              </select>
             </div>
-            <div class="metric">
-              <span>Pressure</span>
-              <strong id="pressureValue">--</strong>
+            <div class="config-row">
+              <label for="protectionModeSelect">Protection Mode</label>
+              <select id="protectionModeSelect">
+                <option value="armed">Armed</option>
+                <option value="service">Service Mode</option>
+              </select>
             </div>
-            <div class="metric">
-              <span>Light</span>
-              <strong id="lightValue">--</strong>
-            </div>
-            <div class="metric">
-              <span>Gas</span>
-              <strong id="gasValue">--</strong>
-            </div>
-            <div class="metric">
-              <span>Force</span>
-              <strong id="forceValue">--</strong>
-            </div>
-          </div>
 
-          <form id="configForm" class="config-panel">
-            <div class="config-field">
-              <label for="thresholdInput">FSR threshold</label>
-              <input id="thresholdInput" type="text" inputmode="numeric" pattern="[0-9]*" value="1000">
+            <details class="advanced-config">
+              <summary>Advanced threshold and calibration</summary>
+              <div class="advanced-grid">
+                <div class="config-field">
+                  <label for="thresholdInput">FSR threshold</label>
+                  <input id="thresholdInput" type="text" inputmode="numeric" pattern="[0-9]*" value="1000">
+                </div>
+                <div class="config-field">
+                  <label for="samplingInput">Sampling ms</label>
+                  <input id="samplingInput" type="text" inputmode="numeric" pattern="[0-9]*" value="2000">
+                </div>
+              </div>
+
+              <div class="calibration-box">
+                <div>
+                  <strong>FSR Baseline Calibration</strong>
+                  <p id="calibrationStatus">Ready to sample the current unloaded force value.</p>
+                </div>
+                <div class="calibration-actions">
+                  <button id="calibrateBtn" type="button">Calibrate</button>
+                  <button id="applyRecommendedBtn" type="button" disabled>Apply Recommendation</button>
+                </div>
+                <div class="calibration-values">
+                  <span>Baseline <strong id="baselineValue">--</strong></span>
+                  <span>Recommended <strong id="recommendedThresholdValue">--</strong></span>
+                </div>
+              </div>
+            </details>
+
+            <div class="form-actions">
+              <button id="applyConfigBtn" type="submit">Apply Runtime Config</button>
+              <span id="configStatus" class="config-status">ready</span>
             </div>
-            <div class="config-field">
-              <label for="samplingInput">Sampling</label>
-              <input id="samplingInput" type="text" inputmode="numeric" pattern="[0-9]*" value="2000">
-            </div>
-            <label class="toggle-field" for="interruptToggle">
-              <input id="interruptToggle" type="checkbox" checked>
-              <span>Interrupt</span>
-            </label>
-            <button id="applyConfigBtn" type="submit">Apply</button>
-            <span id="configStatus" class="config-status">ready</span>
           </form>
         </section>
 
-        <section class="panel serial-panel">
+        <section class="panel alarm-panel">
           <div class="panel-title">
-            <h2>Serial Data</h2>
-            <button id="clearLogBtn" type="button">Clear</button>
+            <div>
+              <h2>Alarm Log</h2>
+              <p class="panel-note">Current session tamper events</p>
+            </div>
           </div>
-          <pre id="rawLog" aria-live="polite"></pre>
+          <div id="alarmLog" class="event-log">
+            <p class="empty-log">No alarms in this session.</p>
+          </div>
         </section>
       </section>
+
+      <details id="debugPanel" class="debug-panel">
+        <summary>
+          <span>Debug serial and driver diagnostics</span>
+          <small id="debugSummary">raw serial paused while closed</small>
+        </summary>
+        <section class="debug-grid">
+          <div class="panel diagnostics-panel">
+            <dl class="diagnostics-grid">
+              <div><dt>Serial</dt><dd id="diagConnection">--</dd></div>
+              <div><dt>Last Command</dt><dd id="diagLastCommand">--</dd></div>
+              <div><dt>Read Counts</dt><dd id="diagReadCounts">--</dd></div>
+              <div><dt>Environment</dt><dd id="diagEnvironment">--</dd></div>
+              <div><dt>Gas</dt><dd id="diagGas">--</dd></div>
+              <div><dt>Config Sync</dt><dd id="diagConfigSync">--</dd></div>
+            </dl>
+          </div>
+
+          <div class="panel serial-panel">
+            <div class="panel-title">
+              <h2>Raw Serial</h2>
+              <button id="clearLogBtn" type="button">Clear</button>
+            </div>
+            <pre id="rawLog" aria-live="polite"></pre>
+          </div>
+        </section>
+      </details>
     </main>
     <script src="/static/app.js"></script>
   </body>

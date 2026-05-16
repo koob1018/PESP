@@ -6,13 +6,8 @@
       "displayName": "Pico SDK Minimal",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
-      "environment": {
-        "PICO_SDK_PATH": "/Users/yiwenxu/softwares/pico-sdk"
-      },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_C_COMPILER": "/opt/homebrew/bin/arm-none-eabi-gcc",
-        "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/arm-none-eabi-g++"
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     }
   ],

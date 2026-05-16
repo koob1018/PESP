@@ -24,7 +24,7 @@ Zephyr firmware for the room-monitoring base station demo.
 - Automatic flashing has been verified with `./flash-base.sh`. Run:
 
 ```bash
-cd /Users/yiwenxu/Projects/coursework/PESP
+cd PESP
 ./flash-base.sh
 ```
 
@@ -32,7 +32,7 @@ cd /Users/yiwenxu/Projects/coursework/PESP
 - Equivalent direct commands once base-station is already in BOOTSEL:
 
 ```bash
-picotool load -v /Users/yiwenxu/Projects/coursework/PESP/base-station/build/zephyr/zephyr.uf2 --ser 3CFF0B54ACC69F66
+picotool load -v base-station/build/zephyr/zephyr.uf2 --ser 3CFF0B54ACC69F66
 picotool reboot --ser 3CFF0B54ACC69F66
 ```
 

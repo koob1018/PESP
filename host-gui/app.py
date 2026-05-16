@@ -63,6 +63,15 @@ def parse_number(text: str) -> int | float | None:
     return int(text)
 
 
+def detect_default_serial_port() -> str:
+    ports = list(list_ports.comports())
+    for port in ports:
+        haystack = f"{port.device} {port.description} {port.hwid}".lower()
+        if "usbmodem" in haystack or "pico" in haystack:
+            return port.device
+    return ports[0].device if ports else ""
+
+
 @dataclass
 class DashboardState:
     connected: bool = False
@@ -172,9 +181,25 @@ class AppModel:
             snapshot = self.state.snapshot()
         self.publish({"kind": "state", "state": snapshot})
 
-    def add_event_log(self, text: str) -> None:
+    def add_event_log(
+        self,
+        text: str,
+        kind: str = "info",
+        force: int | None = None,
+        threshold: int | None = None,
+        armed_only: bool = False,
+    ) -> None:
+        if armed_only and not self.state.base["config"].get("interrupt", True):
+            return
         events = self.state.interrupt["events"]
-        events.insert(0, {"time": iso_now(), "text": text})
+        events.insert(0, {
+            "time": iso_now(),
+            "time_ms": now_ms(),
+            "kind": kind,
+            "text": text,
+            "force": force,
+            "threshold": threshold,
+        })
         del events[30:]
 
     def record_interrupt_time(self) -> None:
@@ -257,11 +282,11 @@ class AppModel:
                 self.state.base["read_event_count"] += 1
                 self.state.interrupt["last_event_text"] = "Base requested READ_EVENT"
                 self.record_interrupt_time()
-                self.add_event_log("base requested READ_EVENT")
+                self.add_event_log("Base requested READ_EVENT", "driver", armed_only=True)
             elif command == "CLEAR_EVENT":
                 self.state.base["clear_event_count"] += 1
                 self.state.interrupt["last_event_text"] = "Base sent CLEAR_EVENT"
-                self.add_event_log("base sent CLEAR_EVENT")
+                self.add_event_log("Event cleared by base-station", "clear", armed_only=True)
             elif command.startswith("SET_FORCE_THRESHOLD="):
                 self.state.base["config"]["force_threshold"] = int(command.split("=", 1)[1])
             elif command.startswith("SET_SAMPLING_RATE="):
@@ -295,13 +320,19 @@ class AppModel:
                 "last_event_text": f"Latched force={force}, threshold={threshold}",
             })
             self.record_interrupt_time()
-            self.add_event_log(f"latched force={force}, threshold={threshold}")
+            self.add_event_log(
+                f"Tamper Alert force={force} threshold={threshold}",
+                "tamper",
+                force=force,
+                threshold=threshold,
+                armed_only=True,
+            )
             return
 
         if line == "[event] cleared":
             self.state.interrupt["state"] = "idle"
             self.state.interrupt["last_event_text"] = "Cleared"
-            self.add_event_log("cleared")
+            self.add_event_log("Event cleared", "clear", armed_only=True)
             return
 
         i2c_match = I2C_RE.match(line)
@@ -562,18 +593,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="PESP host GUI")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--serial", default="/dev/cu.usbmodem1101")
+    parser.add_argument("--serial", default="")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--no-autoconnect", action="store_true")
     args = parser.parse_args()
 
-    if not args.no_autoconnect:
-        MONITOR.start(args.serial, args.baud)
+    serial_port = args.serial or detect_default_serial_port()
+
+    if not args.no_autoconnect and serial_port:
+        MONITOR.start(serial_port, args.baud)
 
     httpd = ThreadingHTTPServer((args.host, args.port), GuiHandler)
     print(f"PESP host GUI: http://{args.host}:{args.port}")
-    if not args.no_autoconnect:
-        print(f"Serial autoconnect: {args.serial} @ {args.baud}")
+    if not args.no_autoconnect and serial_port:
+        print(f"Serial autoconnect: {serial_port} @ {args.baud}")
+    elif not args.no_autoconnect:
+        print("Serial autoconnect skipped: no serial ports found")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
