@@ -18,3 +18,5 @@ sensor-node/build/
 *.hex
 *.map
 *.dis
+
+docs/
