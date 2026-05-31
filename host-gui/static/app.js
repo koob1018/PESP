@@ -2,30 +2,40 @@ const els = {};
 const rawLines = [];
 const trendSamples = [];
 
+const LIGHT_RAW_MAX = 65535;
 const TAMPER_HOLD_MS = 15000;
 const TREND_WINDOW_MS = 180000;
 const MAX_RAW_LINES = 80;
-const SENSITIVITY_PRESETS = { high: 600, medium: 1000, low: 1800 };
+const FORCE_BASELINE_IDLE_MAX = 200;
+const FORCE_BASELINE_SAMPLE_COUNT = 8;
 const RATE_PRESETS = { fast: 500, normal: 2000, slow: 5000 };
+const METRIC_VALUE_IDS = [
+  "tempValue",
+  "humidityValue",
+  "lightValue",
+  "forceValue",
+  "pressureValue",
+  "gasValue",
+];
 const TREND_DOMAINS = {
   temperature: { min: 0, max: 50, unit: "C" },
   humidity: { min: 0, max: 100, unit: "%" },
-  light: { min: 0, max: 4095, unit: "" },
+  light: { min: 0, max: LIGHT_RAW_MAX, unit: "" },
   force: { min: 0, max: 4095, unit: "" },
+};
+const ALARM_LABELS = {
+  FORCE: "Force Alert",
+  LIGHT: "Light Alert",
+  TEMP: "Temperature Alert",
+  HUMIDITY: "Humidity Alert",
 };
 
 let configDirty = false;
+let configSendTimer = null;
 let lastTrendSampleMs = null;
-let latestState = null;
-let calibration = {
-  active: false,
-  samples: [],
-  timer: null,
-  recommended: null,
-  baseline: null,
-  startedAt: null,
-  lastSampleMs: null,
-};
+let forceBaseline = null;
+let lastForceBaselineSampleMs = null;
+const forceBaselineSamples = [];
 
 function $(id) {
   return document.getElementById(id);
@@ -45,8 +55,35 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function medianRounded(values) {
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+function updateForceBaseline(rawForce, timestamp) {
+  if (!Number.isFinite(rawForce) || rawForce > FORCE_BASELINE_IDLE_MAX) return;
+  if (timestamp && timestamp === lastForceBaselineSampleMs) return;
+  if (forceBaselineSamples.length >= FORCE_BASELINE_SAMPLE_COUNT) return;
+
+  lastForceBaselineSampleMs = timestamp || Date.now();
+  forceBaselineSamples.push(rawForce);
+  forceBaseline = medianRounded(forceBaselineSamples);
+}
+
+function displayForce(rawForce) {
+  if (!Number.isFinite(rawForce)) return rawForce;
+  return Math.max(0, rawForce - (forceBaseline || 0));
+}
+
+function displayForceThreshold(rawThreshold) {
+  if (!Number.isFinite(rawThreshold)) return rawThreshold;
+  return Math.max(0, rawThreshold - (forceBaseline || 0));
+}
+
 function setStatus(connected, status) {
-  els.statusPill.textContent = status || (connected ? "Connected" : "Disconnected");
+  els.statusPill.textContent = status || (connected ? "Online" : "Offline");
   els.statusPill.classList.toggle("online", connected);
   els.statusPill.classList.toggle("offline", !connected);
 }
@@ -57,57 +94,117 @@ function ageMs(timestamp) {
 }
 
 function isArmed(cfg) {
-  return !cfg || cfg.interrupt !== false;
+  return !cfg || (cfg.interrupt !== false && cfg.service !== true);
 }
 
-function deriveLightStatus(light) {
-  if (light === null || light === undefined) return { label: "--", className: "" };
-  if (light < 800) return { label: "Dark", className: "dark" };
-  if (light > 3000) return { label: "Bright", className: "bright" };
-  return { label: "Normal", className: "normal" };
+function addAlarm(alarms, source, label, detail) {
+  if (!source || alarms.some((alarm) => alarm.source === source)) return;
+  alarms.push({ source, label: label || ALARM_LABELS[source] || "Alarm Alert", detail });
+}
+
+function deriveActiveAlarms(state) {
+  const sensor = state.sensor || {};
+  const interrupt = state.interrupt || {};
+  const cfg = (state.base && state.base.config) || {};
+  const alarms = [];
+
+  if (!isArmed(cfg)) return alarms;
+
+  const recentInterrupt = ageMs(interrupt.last_interrupt_ms) <= TAMPER_HOLD_MS;
+  if (sensor.event === true || recentInterrupt) {
+    addAlarm(
+      alarms,
+      interrupt.alarm_source || "FORCE",
+      interrupt.alarm_label || ALARM_LABELS.FORCE,
+      interrupt.alarm_detail || interrupt.last_event_text || "Latched event",
+    );
+  }
+
+  const forceThreshold = sensor.threshold ?? cfg.force_threshold;
+  const force = displayForce(sensor.force);
+  const threshold = displayForceThreshold(forceThreshold);
+  if (Number.isFinite(force) && Number.isFinite(threshold) && force >= threshold) {
+    addAlarm(alarms, "FORCE", ALARM_LABELS.FORCE, `Force ${force} >= ${threshold}`);
+  }
+  if (Number.isFinite(sensor.light) && Number.isFinite(cfg.light_high) &&
+      sensor.light >= cfg.light_high) {
+    addAlarm(alarms, "LIGHT", ALARM_LABELS.LIGHT, `Light ${sensor.light} >= ${cfg.light_high}`);
+  }
+  if (Number.isFinite(sensor.temperature_c) && Number.isFinite(cfg.temp_high) &&
+      sensor.temperature_c >= cfg.temp_high) {
+    addAlarm(
+      alarms,
+      "TEMP",
+      ALARM_LABELS.TEMP,
+      `Temperature ${Number(sensor.temperature_c).toFixed(2)} >= ${Number(cfg.temp_high).toFixed(2)}`,
+    );
+  }
+  if (Number.isFinite(sensor.humidity_pct) && Number.isFinite(cfg.humidity_high) &&
+      sensor.humidity_pct >= cfg.humidity_high) {
+    addAlarm(
+      alarms,
+      "HUMIDITY",
+      ALARM_LABELS.HUMIDITY,
+      `Humidity ${Number(sensor.humidity_pct).toFixed(2)} >= ${Number(cfg.humidity_high).toFixed(2)}`,
+    );
+  }
+
+  return alarms;
 }
 
 function deriveCaseStatus(state) {
   const sensor = state.sensor || {};
   const cfg = (state.base && state.base.config) || {};
   const armed = isArmed(cfg);
-  const recentTamper = armed && (
-    sensor.event === true ||
-    ageMs(state.interrupt && state.interrupt.last_interrupt_ms) <= TAMPER_HOLD_MS
-  );
+  const activeAlarms = deriveActiveAlarms(state);
 
-  if (recentTamper) {
+  if (activeAlarms.length) {
     return {
-      label: "Tamper Alert",
+      label: activeAlarms.length === 1 ? activeAlarms[0].label : "Multiple Alerts",
       className: "status-tamper",
-      reason: "Touch or movement event detected by the sensor node.",
+      reason: activeAlarms.length === 1
+        ? activeAlarms[0].detail
+        : `${activeAlarms.length} active alarms`,
+      alarms: activeAlarms,
     };
   }
   if (!state.connected) {
     return {
       label: "Attention",
       className: "status-attention",
-      reason: "Serial connection is not active.",
+      reason: "Serial offline",
+      alarms: [],
     };
   }
   if (!state.last_update_ms || ageMs(state.last_update_ms) > 7000) {
     return {
       label: "Attention",
       className: "status-attention",
-      reason: "Waiting for fresh sensor data.",
+      reason: "Data stale",
+      alarms: [],
     };
   }
   if (sensor.environment_ok === false) {
     return {
       label: "Attention",
       className: "status-attention",
-      reason: "Environment sensor is unavailable.",
+      reason: "Env offline",
+      alarms: [],
+    };
+  }
+  if (!armed) {
+    return {
+      label: "Service",
+      className: "status-service",
+      reason: "Alarms muted",
+      alarms: [],
     };
   }
   return {
     label: "Protected",
     className: "status-protected",
-    reason: "Environment stream is available and no armed tamper event is active.",
+    reason: "Nominal",
+    alarms: [],
   };
 }
 
@@ -115,22 +212,40 @@ function updateCaseStatus(state) {
   const status = deriveCaseStatus(state);
   els.caseStatusValue.textContent = status.label;
   els.caseStatusReason.textContent = status.reason;
-  els.caseStatusCard.classList.remove("status-protected", "status-attention", "status-tamper");
+  els.caseStatusCard.classList.remove("status-protected", "status-attention", "status-tamper", "status-service");
   els.caseStatusCard.classList.add(status.className);
 
   const cfg = (state.base && state.base.config) || {};
-  const sensor = state.sensor || {};
   els.protectionModeValue.textContent = isArmed(cfg) ? "Armed" : "Service";
   els.lastInterruptValue.textContent = (state.interrupt && state.interrupt.last_interrupt_text) || "--";
-  els.tamperStateValue.textContent = sensor.event
-    ? (isArmed(cfg) ? "Latched" : "Latched (service)")
-    : "Idle";
+  renderActiveAlarms(status.alarms || []);
+}
+
+function renderActiveAlarms(alarms) {
+  els.activeAlarmList.innerHTML = "";
+  if (!alarms.length) {
+    els.activeAlarmList.hidden = true;
+    return;
+  }
+
+  alarms.forEach((alarm) => {
+    const item = document.createElement("div");
+    item.className = "active-alarm";
+
+    const label = document.createElement("strong");
+    label.textContent = alarm.label;
+
+    const detail = document.createElement("span");
+    detail.textContent = alarm.detail || "";
+
+    item.append(label, detail);
+    els.activeAlarmList.appendChild(item);
+  });
+  els.activeAlarmList.hidden = false;
 }
 
 function updateMetrics(state) {
   const sensor = state.sensor || {};
-  const cfg = (state.base && state.base.config) || {};
-  const light = deriveLightStatus(sensor.light);
 
   els.tempValue.textContent = fixed(sensor.temperature_c, 2, " C");
   els.humidityValue.textContent = fixed(sensor.humidity_pct, 2, "%");
@@ -138,77 +253,80 @@ function updateMetrics(state) {
   els.gasValue.textContent = sensor.gas_status === "ok"
     ? text(sensor.gas_ohms, " ohm")
     : "--";
-  els.gasStatus.textContent = sensor.gas_status === "ok"
-    ? "VOC proxy available"
-    : (sensor.environment_ok ? "warming or not ready" : "environment unavailable");
   els.environmentStatus.textContent = sensor.environment_ok
-    ? "BME680 environment stream available"
-    : "Environment sensor unavailable";
+    ? "Env online"
+    : "Env offline";
 
   els.lightValue.textContent = text(sensor.light);
-  els.lightStatus.textContent = light.label;
-  els.lightStatus.className = `state-chip ${light.className}`;
 
-  els.forceValue.textContent = text(sensor.force);
-  els.thresholdValue.textContent = text(sensor.threshold ?? cfg.force_threshold);
+  const force = displayForce(sensor.force);
+  els.forceValue.textContent = text(force);
   els.trendTempNow.textContent = fixed(sensor.temperature_c, 1, " C");
   els.trendHumidityNow.textContent = fixed(sensor.humidity_pct, 1, "%");
   els.trendLightNow.textContent = text(sensor.light);
-  els.trendForceNow.textContent = text(sensor.force);
+  els.trendForceNow.textContent = text(force);
+  requestAnimationFrame(fitMetricValues);
+}
+
+function fitMetricValues() {
+  METRIC_VALUE_IDS.forEach((id) => {
+    const el = els[id];
+    if (!el || !el.clientWidth) return;
+
+    el.style.fontSize = "";
+    let size = Number.parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > el.clientWidth && size > 18) {
+      size -= 1;
+      el.style.fontSize = `${size}px`;
+    }
+  });
 }
 
 function selectPresetForValue(value, presets) {
   for (const [name, presetValue] of Object.entries(presets)) {
     if (Number(value) === presetValue) return name;
   }
-  return "custom";
+  return null;
+}
+
+function syncRatePreset(value) {
+  const preset = selectPresetForValue(value, RATE_PRESETS);
+  if (preset) els.rateSelect.value = preset;
 }
 
 function updateConfigControls(cfg) {
-  if (configDirty) return;
-
   if (cfg.force_threshold !== null && cfg.force_threshold !== undefined &&
       document.activeElement !== els.thresholdInput) {
     els.thresholdInput.value = cfg.force_threshold;
-    els.sensitivitySelect.value = selectPresetForValue(cfg.force_threshold, SENSITIVITY_PRESETS);
   }
   if (cfg.sampling_ms !== null && cfg.sampling_ms !== undefined &&
       document.activeElement !== els.samplingInput) {
     els.samplingInput.value = cfg.sampling_ms;
-    els.rateSelect.value = selectPresetForValue(cfg.sampling_ms, RATE_PRESETS);
+    syncRatePreset(cfg.sampling_ms);
   }
-  if (cfg.interrupt !== null && cfg.interrupt !== undefined &&
+  if (cfg.light_high !== null && cfg.light_high !== undefined &&
+      document.activeElement !== els.lightHighInput) {
+    els.lightHighInput.value = cfg.light_high;
+  }
+  if (cfg.temp_high !== null && cfg.temp_high !== undefined &&
+      document.activeElement !== els.tempHighInput) {
+    els.tempHighInput.value = Number(cfg.temp_high).toFixed(2);
+  }
+  if (cfg.humidity_high !== null && cfg.humidity_high !== undefined &&
+      document.activeElement !== els.humidityHighInput) {
+    els.humidityHighInput.value = Number(cfg.humidity_high).toFixed(2);
+  }
+  if ((cfg.interrupt !== null && cfg.interrupt !== undefined ||
+       cfg.service !== null && cfg.service !== undefined) &&
       document.activeElement !== els.protectionModeSelect) {
-    els.protectionModeSelect.value = cfg.interrupt ? "armed" : "service";
+    els.protectionModeSelect.value = isArmed(cfg) ? "armed" : "service";
   }
-}
-
-function updateDiagnostics(state) {
-  const base = state.base || {};
-  const cfg = base.config || {};
-  const sensor = state.sensor || {};
-  const readCounts = [
-    `all ${base.read_all_count || 0}`,
-    `force ${base.read_force_count || 0}`,
-    `event ${base.read_event_count || 0}`,
-    `clear ${base.clear_event_count || 0}`,
-  ].join(" / ");
-
-  els.diagConnection.textContent = state.connected
-    ? `${state.port || "connected"} @ ${state.baud || 115200}`
-    : state.status || "Disconnected";
-  els.diagLastCommand.textContent = base.last_command || "--";
-  els.diagReadCounts.textContent = readCounts;
-  els.diagEnvironment.textContent = sensor.environment_ok ? "online" : "unavailable";
-  els.diagGas.textContent = sensor.gas_status === "ok" ? "ready" : "not ready";
-  els.diagConfigSync.textContent =
-    `threshold ${text(cfg.force_threshold)}, sampling ${text(cfg.sampling_ms, " ms")}, ${isArmed(cfg) ? "armed" : "service"}`;
 }
 
 function renderAlarmLog(events) {
   const list = Array.isArray(events) ? events : [];
   if (!list.length) {
-    els.alarmLog.innerHTML = '<p class="empty-log">No alarms in this session.</p>';
+    els.alarmLog.innerHTML = '<p class="empty-log">No alarms</p>';
     return;
   }
 
@@ -245,7 +363,7 @@ function addTrendSample(state) {
     temperature: sensor.temperature_c,
     humidity: sensor.humidity_pct,
     light: sensor.light,
-    force: sensor.force,
+    force: displayForce(sensor.force),
   });
 
   const cutoff = state.last_update_ms - TREND_WINDOW_MS;
@@ -348,7 +466,7 @@ function renderTrends() {
 }
 
 function updateState(state) {
-  latestState = state;
+  updateForceBaseline(state.sensor && state.sensor.force, state.last_update_ms);
   setStatus(state.connected, state.status);
 
   if (state.port) {
@@ -363,17 +481,15 @@ function updateState(state) {
   }
   els.baudInput.value = state.baud || 115200;
   els.lastUpdate.textContent = state.last_update_text
-    ? `last update ${state.last_update_text}`
-    : "waiting for serial data";
+    ? `Updated ${state.last_update_text}`
+    : "No data";
 
   const cfg = (state.base && state.base.config) || {};
   updateCaseStatus(state);
   updateMetrics(state);
   updateConfigControls(cfg);
-  updateDiagnostics(state);
   renderAlarmLog(state.interrupt && state.interrupt.events);
   addTrendSample(state);
-  collectCalibrationSample(state);
 
   if (Array.isArray(state.raw_lines) && state.raw_lines.length && rawLines.length === 0) {
     rawLines.push(...state.raw_lines.slice(-MAX_RAW_LINES));
@@ -403,7 +519,7 @@ function renderLog() {
 function updateDebugSummary() {
   if (!els.debugSummary) return;
   const lineWord = rawLines.length === 1 ? "line" : "lines";
-  els.debugSummary.textContent = `${rawLines.length} recent ${lineWord} cached`;
+  els.debugSummary.textContent = `${rawLines.length} ${lineWord}`;
 }
 
 async function refreshPorts() {
@@ -453,102 +569,66 @@ function markConfigDirty() {
   setConfigStatus("editing");
 }
 
-function syncPresetControls() {
-  const threshold = Number(els.thresholdInput.value);
-  const sampling = Number(els.samplingInput.value);
-  els.sensitivitySelect.value = selectPresetForValue(threshold, SENSITIVITY_PRESETS);
-  els.rateSelect.value = selectPresetForValue(sampling, RATE_PRESETS);
+function clearPendingConfigSend() {
+  if (configSendTimer) {
+    clearTimeout(configSendTimer);
+    configSendTimer = null;
+  }
 }
 
-async function applyConfig(event) {
-  event.preventDefault();
+function syncPresetControls() {
+  const sampling = Number(els.samplingInput.value);
+  syncRatePreset(sampling);
+}
 
-  const forceThreshold = Number(els.thresholdInput.value);
-  const samplingMs = Number(els.samplingInput.value);
-  if (!Number.isInteger(forceThreshold) || forceThreshold < 0 || forceThreshold > 4095) {
-    setConfigStatus("threshold 0-4095", "error");
-    return;
-  }
-  if (!Number.isInteger(samplingMs) || samplingMs < 100 || samplingMs > 60000) {
-    setConfigStatus("sampling 100-60000", "error");
-    return;
-  }
-
-  setConfigStatus("applying");
-  const payload = await postJson("/api/config", {
-    force_threshold: forceThreshold,
-    sampling_ms: samplingMs,
-    interrupt: els.protectionModeSelect.value === "armed",
-  });
-  setConfigStatus(payload.ok ? "applied" : "failed", payload.ok ? "ok" : "error");
-  if (payload.ok) {
+async function sendConfigPatch(payload, okText = "saved") {
+  clearPendingConfigSend();
+  setConfigStatus("saving");
+  const response = await postJson("/api/config", payload);
+  setConfigStatus(response.ok ? okText : "failed", response.ok ? "ok" : "error");
+  if (response.ok) {
     configDirty = false;
     syncPresetControls();
   }
+  return response;
 }
 
-function collectCalibrationSample(state) {
-  if (!calibration.active) return;
-  const force = state.sensor && state.sensor.force;
-  if (Number.isFinite(force) && state.last_update_ms !== calibration.lastSampleMs) {
-    calibration.samples.push(force);
-    calibration.lastSampleMs = state.last_update_ms;
-  }
-  const remaining = Math.max(0, 5 - Math.floor((Date.now() - calibration.startedAt) / 1000));
-  els.calibrationStatus.textContent =
-    `Sampling unloaded force for calibration, about ${remaining}s remaining.`;
-}
-
-function finishCalibration() {
-  calibration.active = false;
-  calibration.timer = null;
-
-  if (!calibration.samples.length) {
-    els.calibrationStatus.textContent = "Calibration failed: no force samples received.";
-    els.applyRecommendedBtn.disabled = true;
+function sendIntegerField(input, key, min, max, label, delayMs = 450) {
+  const value = Number(input.value);
+  markConfigDirty();
+  if (!Number.isInteger(value) || value < min || value > max) {
+    setConfigStatus(`${label} ${min}-${max}`, "error");
     return;
   }
-
-  const sorted = calibration.samples.slice().sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const median = sorted.length % 2 === 0
-    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
-    : sorted[mid];
-  const recommended = clamp(median + 600, 300, 3500);
-
-  calibration.baseline = median;
-  calibration.recommended = recommended;
-  els.baselineValue.textContent = median;
-  els.recommendedThresholdValue.textContent = recommended;
-  els.calibrationStatus.textContent =
-    `Baseline captured from ${calibration.samples.length} samples. Review before applying.`;
-  els.applyRecommendedBtn.disabled = false;
+  clearPendingConfigSend();
+  configSendTimer = setTimeout(() => {
+    sendConfigPatch({ [key]: value });
+  }, delayMs);
 }
 
-function startCalibration() {
-  if (calibration.timer) clearTimeout(calibration.timer);
-  calibration = {
-    active: true,
-    samples: [],
-    timer: setTimeout(finishCalibration, 5000),
-    recommended: null,
-    baseline: null,
-    startedAt: Date.now(),
-    lastSampleMs: null,
-  };
-  els.baselineValue.textContent = "--";
-  els.recommendedThresholdValue.textContent = "--";
-  els.applyRecommendedBtn.disabled = true;
-  els.calibrationStatus.textContent = "Sampling unloaded force for calibration, about 5s remaining.";
-  if (latestState) collectCalibrationSample(latestState);
-}
-
-function applyRecommendation() {
-  if (calibration.recommended === null || calibration.recommended === undefined) return;
-  els.thresholdInput.value = calibration.recommended;
-  els.sensitivitySelect.value = "custom";
+function sendFloatField(input, key, min, max, label, delayMs = 450) {
+  const value = Number(input.value);
   markConfigDirty();
-  setConfigStatus("recommendation ready");
+  if (!Number.isFinite(value) || value < min || value > max) {
+    setConfigStatus(`${label} ${min}-${max}`, "error");
+    return;
+  }
+  clearPendingConfigSend();
+  configSendTimer = setTimeout(() => {
+    sendConfigPatch({ [key]: value });
+  }, delayMs);
+}
+
+async function applyProtectionMode() {
+  const armed = els.protectionModeSelect.value === "armed";
+
+  els.protectionModeSelect.disabled = true;
+  setConfigStatus(armed ? "arming" : "service");
+  try {
+    await sendConfigPatch({ interrupt: armed }, armed ? "armed" : "service");
+  } finally {
+    els.protectionModeSelect.disabled = false;
+  }
 }
 
 function connectEvents() {
@@ -562,51 +642,49 @@ function connectEvents() {
 }
 
 function bindConfigEvents() {
-  els.sensitivitySelect.addEventListener("change", () => {
-    const value = SENSITIVITY_PRESETS[els.sensitivitySelect.value];
-    if (value !== undefined) els.thresholdInput.value = value;
-    markConfigDirty();
-  });
   els.rateSelect.addEventListener("change", () => {
     const value = RATE_PRESETS[els.rateSelect.value];
     if (value !== undefined) els.samplingInput.value = value;
-    markConfigDirty();
+    if (value !== undefined) sendConfigPatch({ sampling_ms: value });
   });
-  els.protectionModeSelect.addEventListener("change", markConfigDirty);
+  els.protectionModeSelect.addEventListener("change", applyProtectionMode);
   els.thresholdInput.addEventListener("input", () => {
-    els.sensitivitySelect.value = "custom";
-    markConfigDirty();
+    sendIntegerField(els.thresholdInput, "force_threshold", 0, 4095, "fsr");
   });
   els.samplingInput.addEventListener("input", () => {
-    els.rateSelect.value = "custom";
-    markConfigDirty();
+    sendIntegerField(els.samplingInput, "sampling_ms", 100, 60000, "sampling rate");
   });
-  els.configForm.addEventListener("submit", applyConfig);
+  els.lightHighInput.addEventListener("input", () => {
+    sendIntegerField(els.lightHighInput, "light_high", 0, LIGHT_RAW_MAX, "light");
+  });
+  els.tempHighInput.addEventListener("input", () => {
+    sendFloatField(els.tempHighInput, "temp_high", -40, 85, "temp");
+  });
+  els.humidityHighInput.addEventListener("input", () => {
+    sendFloatField(els.humidityHighInput, "humidity_high", 0, 100, "humidity");
+  });
+  els.configForm.addEventListener("submit", (event) => event.preventDefault());
   els.readConfigBtn.addEventListener("click", async () => {
-    setConfigStatus("reading");
+    setConfigStatus("reading config");
     const payload = await postJson("/api/command", { command: "READ_CONFIG" });
-    setConfigStatus(payload.ok ? "read requested" : "failed", payload.ok ? "ok" : "error");
+    setConfigStatus(payload.ok ? "config synced" : "sync failed", payload.ok ? "ok" : "error");
     if (payload.ok) configDirty = false;
   });
-  els.calibrateBtn.addEventListener("click", startCalibration);
-  els.applyRecommendedBtn.addEventListener("click", applyRecommendation);
 }
 
 async function init() {
   [
     "portSelect", "baudInput", "connectBtn", "disconnectBtn", "statusPill",
     "lastUpdate", "caseStatusCard", "caseStatusValue", "caseStatusReason",
-    "protectionModeValue", "lastInterruptValue", "tamperStateValue",
-    "tempValue", "humidityValue", "pressureValue", "gasValue", "gasStatus",
-    "environmentStatus", "lightValue", "lightStatus", "forceValue", "thresholdValue",
+    "activeAlarmList", "protectionModeValue", "lastInterruptValue",
+    "tempValue", "humidityValue", "pressureValue", "gasValue",
+    "environmentStatus", "lightValue", "forceValue",
     "trendTemp", "trendHumidity", "trendLight", "trendForce", "trendTempNow",
     "trendHumidityNow", "trendLightNow", "trendForceNow", "configForm",
-    "sensitivitySelect", "rateSelect", "protectionModeSelect", "thresholdInput",
-    "samplingInput", "applyConfigBtn", "readConfigBtn", "calibrateBtn",
-    "applyRecommendedBtn", "baselineValue", "recommendedThresholdValue",
-    "calibrationStatus", "configStatus", "alarmLog", "diagConnection",
-    "diagLastCommand", "diagReadCounts", "diagEnvironment", "diagGas",
-    "diagConfigSync", "debugPanel", "debugSummary", "rawLog", "clearLogBtn",
+    "rateSelect", "protectionModeSelect", "thresholdInput",
+    "samplingInput", "lightHighInput", "tempHighInput", "humidityHighInput",
+    "readConfigBtn", "configStatus", "alarmLog", "debugPanel", "debugSummary",
+    "rawLog", "clearLogBtn",
   ].forEach((id) => {
     els[id] = $(id);
   });
@@ -635,11 +713,20 @@ async function init() {
     postJson("/api/command", { command: "READ_CONFIG" });
   }
 
-  setInterval(refreshPorts, 10000);
+  setInterval(() => {
+    refreshPorts().catch(() => setStatus(false, "Offline"));
+  }, 10000);
   setInterval(async () => {
-    updateState(await fetch("/api/state").then((response) => response.json()));
+    try {
+      updateState(await fetch("/api/state").then((response) => response.json()));
+    } catch (_error) {
+      setStatus(false, "Offline");
+    }
   }, 2500);
-  window.addEventListener("resize", renderTrends);
+  window.addEventListener("resize", () => {
+    renderTrends();
+    requestAnimationFrame(fitMetricValues);
+  });
 }
 
 init().catch((error) => {

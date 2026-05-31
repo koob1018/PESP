@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import queue
 import re
 import threading
@@ -28,6 +29,7 @@ from serial.tools import list_ports
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
+LIGHT_RAW_MAX = 65535
 
 SAMPLE_ENV_RE = re.compile(
     r"^\[sample\] force=(?P<force>\d+) event=(?P<event>[01]) "
@@ -41,8 +43,14 @@ SAMPLE_ERR_RE = re.compile(
     r"thresh=(?P<threshold>\d+) env=ERR light=(?P<light>\d+|ERR)$"
 )
 LINK_RE = re.compile(r"^\[link-rx\] type=(?P<type>0x[0-9a-fA-F]+) cmd=(?P<cmd>.+)$")
-CONFIG_RE = re.compile(r"^\[config\] (?P<key>[a-z_]+)=(?P<value>\d+)$")
+CONFIG_RE = re.compile(r"^\[config\] (?P<key>[a-z_]+)=(?P<value>-?\d+(?:\.\d+)?)$")
 EVENT_LATCH_RE = re.compile(r"^\[event\] latched force=(?P<force>\d+) threshold=(?P<threshold>\d+)$")
+EVENT_SOURCE_RE = re.compile(
+    r"^\[event\] latched source=(?P<source>[A-Z_]+) "
+    r"(?P<key>light|temp|hum)=(?P<value>-?\d+(?:\.\d+)?) "
+    r"threshold=(?P<threshold>-?\d+(?:\.\d+)?)$"
+)
+SERVICE_RE = re.compile(r"^\[service\] mode=(?P<mode>[01])$")
 I2C_RE = re.compile(r"^\[i2c\] addr=(?P<addr>0x[0-9a-fA-F]+)$")
 BME_RE = re.compile(r"^\[bme\] addr=(?P<addr>0x[0-9a-fA-F]+) (?P<result>.+)$")
 
@@ -63,6 +71,24 @@ def parse_number(text: str) -> int | float | None:
     return int(text)
 
 
+def alarm_label_for_source(source: str | None) -> str:
+    return {
+        "FORCE": "Force Alert",
+        "LIGHT": "Light Alert",
+        "TEMP": "Temperature Alert",
+        "HUMIDITY": "Humidity Alert",
+    }.get(source or "", "Alarm Alert")
+
+
+def alarm_name_for_source(source: str | None) -> str:
+    return {
+        "FORCE": "Force",
+        "LIGHT": "Light",
+        "TEMP": "Temperature",
+        "HUMIDITY": "Humidity",
+    }.get(source or "", "Alarm")
+
+
 def detect_default_serial_port() -> str:
     ports = list(list_ports.comports())
     for port in ports:
@@ -77,7 +103,7 @@ class DashboardState:
     connected: bool = False
     port: str | None = None
     baud: int = 115200
-    status: str = "Disconnected"
+    status: str = "Offline"
     last_update_ms: int | None = None
     last_update_text: str = "never"
     raw_lines: deque[str] = field(default_factory=lambda: deque(maxlen=240))
@@ -106,6 +132,10 @@ class DashboardState:
             "force_threshold": 1000,
             "sampling_ms": 2000,
             "interrupt": True,
+            "service": False,
+            "light_high": 2000,
+            "temp_high": 30.0,
+            "humidity_high": 70.0,
         },
     })
     interrupt: dict[str, Any] = field(default_factory=lambda: {
@@ -116,6 +146,9 @@ class DashboardState:
         "last_interrupt_ms": None,
         "last_interrupt_text": None,
         "last_event_text": None,
+        "alarm_source": None,
+        "alarm_label": None,
+        "alarm_detail": None,
         "events": [],
     })
     diagnostics: dict[str, Any] = field(default_factory=lambda: {
@@ -189,7 +222,8 @@ class AppModel:
         threshold: int | None = None,
         armed_only: bool = False,
     ) -> None:
-        if armed_only and not self.state.base["config"].get("interrupt", True):
+        config = self.state.base["config"]
+        if armed_only and (not config.get("interrupt", True) or config.get("service", False)):
             return
         events = self.state.interrupt["events"]
         events.insert(0, {
@@ -203,9 +237,35 @@ class AppModel:
         del events[30:]
 
     def record_interrupt_time(self) -> None:
-        if self.state.base["config"].get("interrupt", True):
+        config = self.state.base["config"]
+        if config.get("interrupt", True) and not config.get("service", False):
             self.state.interrupt["last_interrupt_ms"] = self.state.last_update_ms
             self.state.interrupt["last_interrupt_text"] = self.state.last_update_text
+
+    def clear_alarm_state_locked(self) -> None:
+        self.state.sensor["event"] = False
+        self.state.interrupt.update({
+            "state": "idle",
+            "last_force": None,
+            "threshold": None,
+            "last_latched_ms": None,
+            "last_interrupt_ms": None,
+            "last_interrupt_text": None,
+            "last_event_text": None,
+            "alarm_source": None,
+            "alarm_label": None,
+            "alarm_detail": None,
+        })
+        self.state.interrupt["events"] = []
+
+    def apply_local_mode(self, armed: bool) -> None:
+        with self.lock:
+            self.state.base["config"]["interrupt"] = armed
+            self.state.base["config"]["service"] = not armed
+            if not armed:
+                self.clear_alarm_state_locked()
+            snapshot = self.state.snapshot()
+        self.publish({"kind": "state", "state": snapshot})
 
     def apply_line(self, line: str) -> None:
         line = line.strip()
@@ -282,11 +342,11 @@ class AppModel:
                 self.state.base["read_event_count"] += 1
                 self.state.interrupt["last_event_text"] = "Base requested READ_EVENT"
                 self.record_interrupt_time()
-                self.add_event_log("Base requested READ_EVENT", "driver", armed_only=True)
+                self.add_event_log("Base READ_EVENT", "driver", armed_only=True)
             elif command == "CLEAR_EVENT":
                 self.state.base["clear_event_count"] += 1
                 self.state.interrupt["last_event_text"] = "Base sent CLEAR_EVENT"
-                self.add_event_log("Event cleared by base-station", "clear", armed_only=True)
+                self.add_event_log("Cleared by base", "clear", armed_only=True)
             elif command.startswith("SET_FORCE_THRESHOLD="):
                 self.state.base["config"]["force_threshold"] = int(command.split("=", 1)[1])
             elif command.startswith("SET_SAMPLING_RATE="):
@@ -298,14 +358,26 @@ class AppModel:
         config_match = CONFIG_RE.match(line)
         if config_match:
             key = config_match.group("key")
-            value = int(config_match.group("value"))
+            text_value = config_match.group("value")
             if key == "force_threshold":
+                value = int(text_value)
                 self.state.base["config"]["force_threshold"] = value
                 self.state.sensor["threshold"] = value
             elif key == "sampling_ms":
-                self.state.base["config"]["sampling_ms"] = value
+                self.state.base["config"]["sampling_ms"] = int(text_value)
             elif key == "interrupt":
-                self.state.base["config"]["interrupt"] = bool(value)
+                self.state.base["config"]["interrupt"] = bool(int(text_value))
+            elif key == "service":
+                service_enabled = bool(int(text_value))
+                self.state.base["config"]["service"] = service_enabled
+                if service_enabled:
+                    self.clear_alarm_state_locked()
+            elif key == "light_high":
+                self.state.base["config"]["light_high"] = int(text_value)
+            elif key == "temp_high":
+                self.state.base["config"]["temp_high"] = float(text_value)
+            elif key == "humidity_high":
+                self.state.base["config"]["humidity_high"] = float(text_value)
             return
 
         latch_match = EVENT_LATCH_RE.match(line)
@@ -318,10 +390,13 @@ class AppModel:
                 "threshold": threshold,
                 "last_latched_ms": self.state.last_update_ms,
                 "last_event_text": f"Latched force={force}, threshold={threshold}",
+                "alarm_source": "FORCE",
+                "alarm_label": alarm_label_for_source("FORCE"),
+                "alarm_detail": f"Force {force} >= {threshold}",
             })
             self.record_interrupt_time()
             self.add_event_log(
-                f"Tamper Alert force={force} threshold={threshold}",
+                f"Force {force} >= {threshold}",
                 "tamper",
                 force=force,
                 threshold=threshold,
@@ -329,10 +404,42 @@ class AppModel:
             )
             return
 
+        source_match = EVENT_SOURCE_RE.match(line)
+        if source_match:
+            source = source_match.group("source")
+            key = source_match.group("key")
+            value = source_match.group("value")
+            threshold = source_match.group("threshold")
+            label = alarm_label_for_source(source)
+            detail = f"{alarm_name_for_source(source)} {value} >= {threshold}"
+            self.state.interrupt.update({
+                "state": "latched",
+                "last_latched_ms": self.state.last_update_ms,
+                "last_event_text": f"{source} high: {key}={value}, threshold={threshold}",
+                "alarm_source": source,
+                "alarm_label": label,
+                "alarm_detail": detail,
+            })
+            self.record_interrupt_time()
+            self.add_event_log(
+                detail,
+                "environment" if source in {"TEMP", "HUMIDITY"} else "light",
+                armed_only=True,
+            )
+            return
+
+        service_match = SERVICE_RE.match(line)
+        if service_match:
+            enabled = service_match.group("mode") == "1"
+            self.state.base["config"]["service"] = enabled
+            if enabled:
+                self.clear_alarm_state_locked()
+            return
+
         if line == "[event] cleared":
             self.state.interrupt["state"] = "idle"
             self.state.interrupt["last_event_text"] = "Cleared"
-            self.add_event_log("Event cleared", "clear", armed_only=True)
+            self.add_event_log("Cleared", "clear", armed_only=True)
             return
 
         i2c_match = I2C_RE.match(line)
@@ -379,7 +486,7 @@ class SerialMonitor:
         if self.thread is not None and self.thread.is_alive():
             self.thread.join(timeout=1.5)
         self.thread = None
-        self.model.set_connection(False, "Disconnected")
+        self.model.set_connection(False, "Offline")
 
     def write_command(self, command: str) -> None:
         text = command.strip()
@@ -432,7 +539,7 @@ class SerialMonitor:
                 if self.serial is ser:
                     self.serial = None
             if not self.stop_event.is_set():
-                self.model.set_connection(False, "Disconnected", port, baud)
+                self.model.set_connection(False, "Offline", port, baud)
 
 
 MODEL = AppModel()
@@ -498,6 +605,8 @@ class GuiHandler(BaseHTTPRequestHandler):
                 try:
                     for command in commands:
                         MONITOR.write_command(command)
+                    if "interrupt" in payload:
+                        MODEL.apply_local_mode(bool(payload["interrupt"]))
                     self._send_json({"ok": True, "commands": commands})
                 except RuntimeError as exc:
                     self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -521,10 +630,29 @@ class GuiHandler(BaseHTTPRequestHandler):
                 raise ValueError("sampling interval must be between 100 and 60000 ms")
             commands.append(f"SET_SAMPLING_RATE={sampling_ms}")
 
+        if "light_high" in payload:
+            light_high = int(payload["light_high"])
+            if light_high < 0 or light_high > LIGHT_RAW_MAX:
+                raise ValueError(f"light threshold must be between 0 and {LIGHT_RAW_MAX}")
+            commands.append(f"SET_LIGHT_HIGH={light_high}")
+
+        if "temp_high" in payload:
+            temp_high = float(payload["temp_high"])
+            if not math.isfinite(temp_high) or temp_high < -40.0 or temp_high > 85.0:
+                raise ValueError("temperature threshold must be between -40 and 85 C")
+            commands.append(f"SET_TEMP_HIGH={temp_high:.2f}")
+
+        if "humidity_high" in payload:
+            humidity_high = float(payload["humidity_high"])
+            if not math.isfinite(humidity_high) or humidity_high < 0.0 or humidity_high > 100.0:
+                raise ValueError("humidity threshold must be between 0 and 100%")
+            commands.append(f"SET_HUMIDITY_HIGH={humidity_high:.2f}")
+
         if "interrupt" in payload:
             interrupt = payload["interrupt"]
             if not isinstance(interrupt, bool):
                 raise ValueError("interrupt must be true or false")
+            commands.append(f"SERVICE_MODE={0 if interrupt else 1}")
             commands.append(f"ENABLE_INTERRUPT={1 if interrupt else 0}")
 
         if commands:

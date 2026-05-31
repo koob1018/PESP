@@ -30,7 +30,18 @@
 #define MIN_SAMPLING_MS 100
 #define DEFAULT_FORCE_THRESHOLD 1000
 #define FORCE_HYSTERESIS 50
-#define FORCE_EVENT_SAMPLE_MS 20
+#define FORCE_EVENT_SAMPLE_MS 10
+#define DEFAULT_LIGHT_HIGH_THRESHOLD 2000
+#define LIGHT_RAW_MAX 65535U
+#define LIGHT_HIGH_HYSTERESIS 200
+#define DEFAULT_TEMP_HIGH_C 30.0f
+#define TEMP_HIGH_HYSTERESIS_C 1.0f
+#define DEFAULT_HUMIDITY_HIGH_PCT 70.0f
+#define HUMIDITY_HIGH_HYSTERESIS_PCT 3.0f
+#define SERVICE_SHORT_MAX_MS 650
+#define SERVICE_LONG_MIN_MS 800
+#define SERVICE_GAP_MAX_MS 1800
+#define SERVICE_PATTERN "SSL"
 
 #define FRAME_SOF0 0xA5
 #define FRAME_SOF1 0x5A
@@ -60,16 +71,43 @@ enum frame_rx_state {
     FRAME_READ_CHECKSUM,
 };
 
+enum event_source {
+    EVENT_SOURCE_NONE,
+    EVENT_SOURCE_FORCE,
+    EVENT_SOURCE_LIGHT,
+    EVENT_SOURCE_TEMP,
+    EVENT_SOURCE_HUMIDITY,
+};
+
 static uint32_t sampling_interval_ms = DEFAULT_SAMPLING_MS;
 static uint16_t force_threshold = DEFAULT_FORCE_THRESHOLD;
+static uint16_t light_high_threshold = DEFAULT_LIGHT_HIGH_THRESHOLD;
+static float temp_high_c = DEFAULT_TEMP_HIGH_C;
+static float humidity_high_pct = DEFAULT_HUMIDITY_HIGH_PCT;
 static bool interrupt_enabled = true;
+static bool service_mode;
 static bool event_latched;
 static bool force_was_high;
+static bool light_was_high;
+static bool temp_was_high;
+static bool humidity_was_high;
 static uint16_t latest_force;
+static enum event_source event_source = EVENT_SOURCE_NONE;
 static uint16_t event_force;
+static uint16_t event_light;
+static int32_t event_temp_centi_c;
+static uint32_t event_humidity_milli_pct;
 static uint32_t event_time_ms;
 static bool reply_as_frame;
 static uint8_t reply_frame_type;
+static bool force_is_pressed;
+static uint32_t force_press_start_ms;
+static uint16_t force_press_peak;
+static char service_pattern[4];
+static uint8_t service_pattern_len;
+static uint16_t service_pattern_peak;
+static uint32_t service_last_symbol_ms;
+static bool service_pattern_pending_force;
 
 static uint16_t read_force_raw(void) {
     adc_select_input(FSR_ADC_INPUT);
@@ -77,21 +115,233 @@ static uint16_t read_force_raw(void) {
 }
 
 static void update_event_irq_pin(void) {
-    gpio_put(EVENT_IRQ_PIN, interrupt_enabled && event_latched);
+    gpio_put(EVENT_IRQ_PIN, interrupt_enabled && event_latched && !service_mode);
+}
+
+static const char *event_source_name(enum event_source source) {
+    switch (source) {
+    case EVENT_SOURCE_FORCE:
+        return "FORCE";
+    case EVENT_SOURCE_LIGHT:
+        return "LIGHT";
+    case EVENT_SOURCE_TEMP:
+        return "TEMP";
+    case EVENT_SOURCE_HUMIDITY:
+        return "HUMIDITY";
+    case EVENT_SOURCE_NONE:
+    default:
+        return "NONE";
+    }
+}
+
+static void clear_event_latch(void) {
+    event_latched = false;
+    event_source = EVENT_SOURCE_NONE;
+    event_force = 0;
+    event_light = 0;
+    event_temp_centi_c = 0;
+    event_humidity_milli_pct = 0;
+    event_time_ms = 0;
+    update_event_irq_pin();
+}
+
+static void latch_event(enum event_source source,
+                        uint16_t force_raw,
+                        uint16_t light_raw,
+                        float temp_c,
+                        float humidity_pct) {
+    if (service_mode || event_latched) {
+        return;
+    }
+
+    event_latched = true;
+    event_source = source;
+    event_force = force_raw;
+    event_light = light_raw;
+    event_temp_centi_c = (int32_t)(temp_c * 100.0f);
+    event_humidity_milli_pct = (uint32_t)(humidity_pct * 1000.0f);
+    event_time_ms = to_ms_since_boot(get_absolute_time());
+    update_event_irq_pin();
+
+    if (source == EVENT_SOURCE_FORCE) {
+        printf("[event] latched force=%u threshold=%u\n",
+               (unsigned)event_force, (unsigned)force_threshold);
+    } else if (source == EVENT_SOURCE_LIGHT) {
+        printf("[event] latched source=LIGHT light=%u threshold=%u\n",
+               (unsigned)event_light, (unsigned)light_high_threshold);
+    } else if (source == EVENT_SOURCE_TEMP) {
+        printf("[event] latched source=TEMP temp=%.2f threshold=%.2f\n",
+               temp_c, temp_high_c);
+    } else if (source == EVENT_SOURCE_HUMIDITY) {
+        printf("[event] latched source=HUMIDITY hum=%.2f threshold=%.2f\n",
+               humidity_pct, humidity_high_pct);
+    }
+}
+
+static void set_service_mode(bool enabled) {
+    if (service_mode == enabled) {
+        return;
+    }
+
+    service_mode = enabled;
+    interrupt_enabled = !enabled;
+    if (service_mode) {
+        force_was_high = false;
+        light_was_high = false;
+        temp_was_high = false;
+        humidity_was_high = false;
+        clear_event_latch();
+    } else {
+        update_event_irq_pin();
+    }
+    printf("[service] mode=%u\n", service_mode ? 1U : 0U);
+    printf("[config] interrupt=%u\n", interrupt_enabled ? 1U : 0U);
+}
+
+static bool service_pattern_is_prefix(void) {
+    const char *pattern = SERVICE_PATTERN;
+
+    if (service_pattern_len > strlen(pattern)) {
+        return false;
+    }
+    return strncmp(service_pattern, pattern, service_pattern_len) == 0;
+}
+
+static bool service_pattern_is_complete(void) {
+    return service_pattern_len == strlen(SERVICE_PATTERN) &&
+           strcmp(service_pattern, SERVICE_PATTERN) == 0;
+}
+
+static void reset_service_pattern(void) {
+    service_pattern_len = 0;
+    service_pattern[0] = '\0';
+    service_pattern_peak = 0;
+    service_last_symbol_ms = 0;
+    service_pattern_pending_force = false;
+}
+
+static void latch_pending_force_pattern(void) {
+    if (service_pattern_pending_force && !service_mode) {
+        latch_event(EVENT_SOURCE_FORCE, service_pattern_peak, 0, 0.0f, 0.0f);
+    }
+    reset_service_pattern();
+}
+
+static void append_service_symbol(char symbol, uint16_t force_peak, uint32_t now_ms) {
+    if (service_pattern_len > 0 && now_ms - service_last_symbol_ms > SERVICE_GAP_MAX_MS) {
+        latch_pending_force_pattern();
+    }
+
+    if (service_pattern_len >= sizeof(service_pattern) - 1) {
+        latch_pending_force_pattern();
+    }
+
+    service_pattern[service_pattern_len++] = symbol;
+    service_pattern[service_pattern_len] = '\0';
+    if (force_peak > service_pattern_peak) {
+        service_pattern_peak = force_peak;
+    }
+    service_last_symbol_ms = now_ms;
+    service_pattern_pending_force = true;
+
+    if (service_pattern_is_complete()) {
+        set_service_mode(!service_mode);
+        reset_service_pattern();
+    } else if (!service_pattern_is_prefix()) {
+        latch_pending_force_pattern();
+    }
+}
+
+static void update_service_gesture(uint16_t force_raw, uint32_t now_ms) {
+    bool pressed = force_is_pressed
+                       ? ((uint32_t)force_raw + FORCE_HYSTERESIS >= force_threshold)
+                       : force_raw >= force_threshold;
+
+    if (service_pattern_len > 0 && !force_is_pressed &&
+        now_ms - service_last_symbol_ms > SERVICE_GAP_MAX_MS) {
+        latch_pending_force_pattern();
+    }
+
+    if (pressed) {
+        uint32_t duration_ms;
+
+        if (!force_is_pressed) {
+            force_is_pressed = true;
+            force_press_start_ms = now_ms;
+            force_press_peak = force_raw;
+        } else if (force_raw > force_press_peak) {
+            force_press_peak = force_raw;
+        }
+
+        duration_ms = now_ms - force_press_start_ms;
+        if (!service_mode && service_pattern_len == 0 && duration_ms > SERVICE_SHORT_MAX_MS &&
+            !force_was_high) {
+            latch_event(EVENT_SOURCE_FORCE, force_press_peak, 0, 0.0f, 0.0f);
+            force_was_high = true;
+        }
+        return;
+    }
+
+    if (force_was_high && (uint32_t)force_raw + FORCE_HYSTERESIS < force_threshold) {
+        force_was_high = false;
+    }
+
+    if (force_is_pressed) {
+        uint32_t duration_ms = now_ms - force_press_start_ms;
+
+        force_is_pressed = false;
+        if (duration_ms <= SERVICE_SHORT_MAX_MS) {
+            append_service_symbol('S', force_press_peak, now_ms);
+        } else if (duration_ms >= SERVICE_LONG_MIN_MS) {
+            append_service_symbol('L', force_press_peak, now_ms);
+        } else if (!service_mode) {
+            latch_event(EVENT_SOURCE_FORCE, force_press_peak, 0, 0.0f, 0.0f);
+            reset_service_pattern();
+        } else {
+            reset_service_pattern();
+        }
+    }
 }
 
 static void update_force_event(uint16_t force_raw) {
     latest_force = force_raw;
+    update_service_gesture(force_raw, to_ms_since_boot(get_absolute_time()));
+}
 
-    if (!force_was_high && force_raw >= force_threshold) {
-        event_latched = true;
-        event_force = force_raw;
-        event_time_ms = to_ms_since_boot(get_absolute_time());
-        force_was_high = true;
-        update_event_irq_pin();
-        printf("[event] latched force=%u threshold=%u\n", (unsigned)event_force, (unsigned)force_threshold);
-    } else if (force_was_high && (uint32_t)force_raw + FORCE_HYSTERESIS < force_threshold) {
-        force_was_high = false;
+static void update_environment_events(bool have_env,
+                                      float temp_c,
+                                      float humidity_pct,
+                                      bool have_light,
+                                      uint16_t light_raw) {
+    if (service_mode) {
+        return;
+    }
+
+    if (have_light) {
+        if (!light_was_high && light_raw >= light_high_threshold) {
+            light_was_high = true;
+            latch_event(EVENT_SOURCE_LIGHT, latest_force, light_raw, 0.0f, 0.0f);
+        } else if (light_was_high &&
+                   (uint32_t)light_raw + LIGHT_HIGH_HYSTERESIS < light_high_threshold) {
+            light_was_high = false;
+        }
+    }
+
+    if (have_env) {
+        if (!temp_was_high && temp_c >= temp_high_c) {
+            temp_was_high = true;
+            latch_event(EVENT_SOURCE_TEMP, latest_force, light_raw, temp_c, humidity_pct);
+        } else if (temp_was_high && temp_c + TEMP_HIGH_HYSTERESIS_C < temp_high_c) {
+            temp_was_high = false;
+        }
+
+        if (!humidity_was_high && humidity_pct >= humidity_high_pct) {
+            humidity_was_high = true;
+            latch_event(EVENT_SOURCE_HUMIDITY, latest_force, light_raw, temp_c, humidity_pct);
+        } else if (humidity_was_high &&
+                   humidity_pct + HUMIDITY_HIGH_HYSTERESIS_PCT < humidity_high_pct) {
+            humidity_was_high = false;
+        }
     }
 }
 
@@ -103,6 +353,9 @@ static bool parse_u32_arg(const char *text, const char *prefix, uint32_t *value)
     if (strncmp(text, prefix, prefix_len) != 0 || text[prefix_len] == '\0') {
         return false;
     }
+    if (text[prefix_len] < '0' || text[prefix_len] > '9') {
+        return false;
+    }
 
     parsed = strtoul(text + prefix_len, &end, 10);
     if (end == text + prefix_len || *end != '\0') {
@@ -110,6 +363,27 @@ static bool parse_u32_arg(const char *text, const char *prefix, uint32_t *value)
     }
 
     *value = (uint32_t)parsed;
+    return true;
+}
+
+static bool parse_float_arg(const char *text, const char *prefix, float *value) {
+    size_t prefix_len = strlen(prefix);
+    char *end = NULL;
+    float parsed;
+
+    if (strncmp(text, prefix, prefix_len) != 0 || text[prefix_len] == '\0') {
+        return false;
+    }
+
+    parsed = strtof(text + prefix_len, &end);
+    if (end == text + prefix_len || *end != '\0') {
+        return false;
+    }
+    if (parsed != parsed || parsed < -100000.0f || parsed > 100000.0f) {
+        return false;
+    }
+
+    *value = parsed;
     return true;
 }
 
@@ -262,8 +536,15 @@ static void send_base_bootsel_request(void) {
     printf("[maint] requested base BOOTSEL\n");
 }
 
+static void reset_alarm_edge_state(void) {
+    light_was_high = false;
+    temp_was_high = false;
+    humidity_was_high = false;
+}
+
 static void handle_usb_command(const char *cmd) {
     uint32_t value;
+    float float_value;
 
     if (strcmp(cmd, "BASE_BOOTSEL") == 0 || strcmp(cmd, "BASE BOOTSEL") == 0) {
         send_base_bootsel_request();
@@ -277,6 +558,10 @@ static void handle_usb_command(const char *cmd) {
         printf("[config] sampling_ms=%lu\n", (unsigned long)sampling_interval_ms);
         printf("[config] force_threshold=%u\n", (unsigned)force_threshold);
         printf("[config] interrupt=%u\n", interrupt_enabled ? 1U : 0U);
+        printf("[config] service=%u\n", service_mode ? 1U : 0U);
+        printf("[config] light_high=%u\n", (unsigned)light_high_threshold);
+        printf("[config] temp_high=%.2f\n", temp_high_c);
+        printf("[config] humidity_high=%.2f\n", humidity_high_pct);
     } else if (parse_u32_arg(cmd, "SET_SAMPLING_RATE=", &value)) {
         if (value < MIN_SAMPLING_MS) {
             value = MIN_SAMPLING_MS;
@@ -290,10 +575,37 @@ static void handle_usb_command(const char *cmd) {
         force_threshold = (uint16_t)value;
         force_was_high = latest_force >= force_threshold;
         printf("[config] force_threshold=%u\n", (unsigned)force_threshold);
+    } else if (parse_u32_arg(cmd, "SET_LIGHT_HIGH=", &value)) {
+        if (value > LIGHT_RAW_MAX) {
+            value = LIGHT_RAW_MAX;
+        }
+        light_high_threshold = (uint16_t)value;
+        reset_alarm_edge_state();
+        printf("[config] light_high=%u\n", (unsigned)light_high_threshold);
+    } else if (parse_float_arg(cmd, "SET_TEMP_HIGH=", &float_value)) {
+        if (float_value < -40.0f) {
+            float_value = -40.0f;
+        } else if (float_value > 85.0f) {
+            float_value = 85.0f;
+        }
+        temp_high_c = float_value;
+        reset_alarm_edge_state();
+        printf("[config] temp_high=%.2f\n", temp_high_c);
+    } else if (parse_float_arg(cmd, "SET_HUMIDITY_HIGH=", &float_value)) {
+        if (float_value < 0.0f) {
+            float_value = 0.0f;
+        } else if (float_value > 100.0f) {
+            float_value = 100.0f;
+        }
+        humidity_high_pct = float_value;
+        reset_alarm_edge_state();
+        printf("[config] humidity_high=%.2f\n", humidity_high_pct);
     } else if (parse_u32_arg(cmd, "ENABLE_INTERRUPT=", &value)) {
         interrupt_enabled = value != 0;
         update_event_irq_pin();
         printf("[config] interrupt=%u\n", interrupt_enabled ? 1U : 0U);
+    } else if (parse_u32_arg(cmd, "SERVICE_MODE=", &value)) {
+        set_service_mode(value != 0);
     } else if (strcmp(cmd, "PING") == 0) {
         printf("[maint] PONG\n");
     } else if (cmd[0] != '\0') {
@@ -341,6 +653,7 @@ static void handle_read_all(void) {
     update_force_event(force);
     have_bme = read_environment(&temp, &hum, &pres, &gas_ohms, &gas_valid);
     have_veml = read_light(&light_raw);
+    update_environment_events(have_bme, temp, hum, have_veml, light_raw);
     if (gas_valid) {
         snprintf(gas_text, sizeof(gas_text), "%lu", (unsigned long)gas_ohms);
     }
@@ -370,8 +683,9 @@ static void handle_read_all(void) {
 }
 
 static void handle_command(const char *cmd) {
-    char out[96];
+    char out[160];
     uint32_t value;
+    float float_value;
 
     if (strcmp(cmd, "PING") == 0) {
         send_line("PONG\n");
@@ -388,6 +702,7 @@ static void handle_command(const char *cmd) {
         uint32_t gas_ohms = 0;
         bool gas_valid = false;
         if (read_environment(&temp, &hum, &pres, &gas_ohms, &gas_valid)) {
+            update_environment_events(true, temp, hum, false, 0);
             if (gas_valid) {
                 snprintf(gas_text, sizeof(gas_text), "%lu", (unsigned long)gas_ohms);
             }
@@ -400,6 +715,7 @@ static void handle_command(const char *cmd) {
     } else if (strcmp(cmd, "READ_LIGHT") == 0) {
         uint16_t light_raw = 0;
         if (read_light(&light_raw)) {
+            update_environment_events(false, 0.0f, 0.0f, true, light_raw);
             snprintf(out, sizeof(out), "LIGHT=%u\n", (unsigned)light_raw);
         } else {
             snprintf(out, sizeof(out), "LIGHT=ERR\n");
@@ -409,21 +725,23 @@ static void handle_command(const char *cmd) {
         uint16_t force = read_force_raw();
         uint32_t age_ms = event_latched ? to_ms_since_boot(get_absolute_time()) - event_time_ms : 0;
         update_force_event(force);
-        snprintf(out, sizeof(out), "EVENT=%u,FORCE=%u,EVENT_FORCE=%u,AGE_MS=%lu,THRESH=%u\n",
-                 event_latched ? 1U : 0U, (unsigned)force, (unsigned)event_force,
-                 (unsigned long)age_ms, (unsigned)force_threshold);
+        snprintf(out, sizeof(out),
+                 "EVENT=%u,SOURCE=%s,FORCE=%u,EVENT_FORCE=%u,EVENT_LIGHT=%u,EVT_T_C=%.2f,EVT_H_PCT=%.2f,AGE_MS=%lu,THRESH=%u,SERVICE=%u\n",
+                 event_latched ? 1U : 0U, event_source_name(event_source), (unsigned)force,
+                 (unsigned)event_force, (unsigned)event_light, event_temp_centi_c / 100.0f,
+                 event_humidity_milli_pct / 1000.0f, (unsigned long)age_ms,
+                 (unsigned)force_threshold, service_mode ? 1U : 0U);
         send_line(out);
     } else if (strcmp(cmd, "CLEAR_EVENT") == 0) {
-        event_latched = false;
-        event_force = 0;
-        event_time_ms = 0;
-        update_event_irq_pin();
+        clear_event_latch();
         printf("[event] cleared\n");
         send_line("OK,CLEAR_EVENT\n");
     } else if (strcmp(cmd, "READ_CONFIG") == 0) {
-        snprintf(out, sizeof(out), "SAMPLING_MS=%lu,FORCE_THRESHOLD=%u,INTERRUPT=%u\n",
+        snprintf(out, sizeof(out),
+                 "SAMPLING_MS=%lu,FORCE_THRESHOLD=%u,INTERRUPT=%u,SERVICE=%u,LIGHT_HIGH=%u,TEMP_HIGH=%.2f,HUMIDITY_HIGH=%.2f\n",
                  (unsigned long)sampling_interval_ms, (unsigned)force_threshold,
-                 interrupt_enabled ? 1U : 0U);
+                 interrupt_enabled ? 1U : 0U, service_mode ? 1U : 0U,
+                 (unsigned)light_high_threshold, temp_high_c, humidity_high_pct);
         send_line(out);
     } else if (parse_u32_arg(cmd, "SET_SAMPLING_RATE=", &value)) {
         if (value < MIN_SAMPLING_MS) {
@@ -442,11 +760,46 @@ static void handle_command(const char *cmd) {
         printf("[config] force_threshold=%u\n", (unsigned)force_threshold);
         snprintf(out, sizeof(out), "OK,FORCE_THRESHOLD=%u\n", (unsigned)force_threshold);
         send_line(out);
+    } else if (parse_u32_arg(cmd, "SET_LIGHT_HIGH=", &value)) {
+        if (value > LIGHT_RAW_MAX) {
+            value = LIGHT_RAW_MAX;
+        }
+        light_high_threshold = (uint16_t)value;
+        reset_alarm_edge_state();
+        printf("[config] light_high=%u\n", (unsigned)light_high_threshold);
+        snprintf(out, sizeof(out), "OK,LIGHT_HIGH=%u\n", (unsigned)light_high_threshold);
+        send_line(out);
+    } else if (parse_float_arg(cmd, "SET_TEMP_HIGH=", &float_value)) {
+        if (float_value < -40.0f) {
+            float_value = -40.0f;
+        } else if (float_value > 85.0f) {
+            float_value = 85.0f;
+        }
+        temp_high_c = float_value;
+        reset_alarm_edge_state();
+        printf("[config] temp_high=%.2f\n", temp_high_c);
+        snprintf(out, sizeof(out), "OK,TEMP_HIGH=%.2f\n", temp_high_c);
+        send_line(out);
+    } else if (parse_float_arg(cmd, "SET_HUMIDITY_HIGH=", &float_value)) {
+        if (float_value < 0.0f) {
+            float_value = 0.0f;
+        } else if (float_value > 100.0f) {
+            float_value = 100.0f;
+        }
+        humidity_high_pct = float_value;
+        reset_alarm_edge_state();
+        printf("[config] humidity_high=%.2f\n", humidity_high_pct);
+        snprintf(out, sizeof(out), "OK,HUMIDITY_HIGH=%.2f\n", humidity_high_pct);
+        send_line(out);
     } else if (parse_u32_arg(cmd, "ENABLE_INTERRUPT=", &value)) {
         interrupt_enabled = value != 0;
         update_event_irq_pin();
         printf("[config] interrupt=%u\n", interrupt_enabled ? 1U : 0U);
         snprintf(out, sizeof(out), "OK,INTERRUPT=%u\n", interrupt_enabled ? 1U : 0U);
+        send_line(out);
+    } else if (parse_u32_arg(cmd, "SERVICE_MODE=", &value)) {
+        set_service_mode(value != 0);
+        snprintf(out, sizeof(out), "OK,SERVICE=%u\n", service_mode ? 1U : 0U);
         send_line(out);
     } else if (cmd[0] != '\0') {
         snprintf(out, sizeof(out), "ERR,UNKNOWN=%s\n", cmd);
@@ -635,6 +988,7 @@ int main(void) {
 
             have_env = read_environment(&temp, &hum, &pres, &gas_ohms, &gas_valid);
             have_light = read_light(&light_raw);
+            update_environment_events(have_env, temp, hum, have_light, light_raw);
             if (gas_valid) {
                 snprintf(gas_text, sizeof(gas_text), "%luohm", (unsigned long)gas_ohms);
             }

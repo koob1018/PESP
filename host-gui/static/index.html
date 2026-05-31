@@ -10,218 +10,178 @@
     <main class="app-shell">
       <header class="topbar">
         <div class="brand">
-          <p class="eyebrow">PESP two-board demo</p>
-          <h1>Smart Exhibit Case Guardian</h1>
-          <p id="lastUpdate" class="subtle">waiting for serial data</p>
+          <h1>Case Guardian</h1>
+          <p id="lastUpdate" class="subtle">No data</p>
         </div>
         <div class="connection">
           <select id="portSelect" aria-label="Serial port"></select>
           <input id="baudInput" type="number" value="115200" min="9600" step="9600" aria-label="Baud rate">
           <button id="connectBtn" type="button">Connect</button>
           <button id="disconnectBtn" type="button">Disconnect</button>
-          <span id="statusPill" class="status-pill offline">Disconnected</span>
+          <span id="statusPill" class="status-pill offline">Offline</span>
         </div>
       </header>
 
-      <section id="caseStatusCard" class="status-band status-attention">
-        <div class="status-main">
-          <span class="label">Case Status</span>
-          <strong id="caseStatusValue">Attention</strong>
-          <p id="caseStatusReason">Waiting for sensor data</p>
-        </div>
-        <div class="status-facts">
-          <div>
-            <span>Protection</span>
-            <strong id="protectionModeValue">--</strong>
-          </div>
-          <div>
-            <span>Last Interrupt</span>
-            <strong id="lastInterruptValue">--</strong>
-          </div>
-          <div>
-            <span>Event Latch</span>
-            <strong id="tamperStateValue">--</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel readings-panel">
-        <div class="panel-title">
-          <div>
-            <h2>Current Case Readings</h2>
-            <p id="environmentStatus" class="panel-note">Environment sensor status unknown</p>
-          </div>
-        </div>
-        <div class="metric-grid">
-          <div class="metric">
-            <span>Temperature</span>
-            <strong id="tempValue">--</strong>
-          </div>
-          <div class="metric">
-            <span>Humidity</span>
-            <strong id="humidityValue">--</strong>
-          </div>
-          <div class="metric">
-            <span>Pressure</span>
-            <strong id="pressureValue">--</strong>
-          </div>
-          <div class="metric">
-            <span>Gas / VOC Proxy</span>
-            <strong id="gasValue">--</strong>
-            <small id="gasStatus">waiting</small>
-          </div>
-          <div class="metric metric-with-chip">
-            <span>Light Raw</span>
-            <strong id="lightValue">--</strong>
-            <small id="lightStatus" class="state-chip">--</small>
-          </div>
-          <div class="metric">
-            <span>Force Raw</span>
-            <strong id="forceValue">--</strong>
-            <small>threshold <b id="thresholdValue">--</b></small>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel trends-panel">
-        <div class="panel-title">
-          <div>
-            <h2>Recent Trends</h2>
-            <p class="panel-note">Three-minute sensor history</p>
-          </div>
-        </div>
-        <div class="trend-grid">
-          <div class="trend-card">
-            <div class="trend-head"><span>Temperature</span><strong id="trendTempNow">--</strong></div>
-            <canvas id="trendTemp"></canvas>
-          </div>
-          <div class="trend-card">
-            <div class="trend-head"><span>Humidity</span><strong id="trendHumidityNow">--</strong></div>
-            <canvas id="trendHumidity"></canvas>
-          </div>
-          <div class="trend-card">
-            <div class="trend-head"><span>Light Raw</span><strong id="trendLightNow">--</strong></div>
-            <canvas id="trendLight"></canvas>
-          </div>
-          <div class="trend-card">
-            <div class="trend-head"><span>Force Raw</span><strong id="trendForceNow">--</strong></div>
-            <canvas id="trendForce"></canvas>
-          </div>
-        </div>
-      </section>
-
-      <section class="lower-grid">
-        <section class="panel config-panel">
-          <div class="panel-title">
+      <section class="control-grid">
+        <div class="main-column">
+          <section id="caseStatusCard" class="status-band status-attention">
             <div>
-              <h2>Runtime Configuration</h2>
-              <p class="panel-note">Sensitivity, rate, and protection mode</p>
+              <span class="label">Status</span>
+              <strong id="caseStatusValue">Attention</strong>
+              <p id="caseStatusReason">No data</p>
+              <div id="activeAlarmList" class="active-alarm-list" hidden></div>
             </div>
-            <button id="readConfigBtn" type="button">Read</button>
-          </div>
-
-          <form id="configForm" class="config-form">
-            <div class="config-row">
-              <label for="sensitivitySelect">Tamper Sensitivity</label>
-              <select id="sensitivitySelect">
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-                <option value="custom">Custom</option>
-              </select>
-            </div>
-            <div class="config-row">
-              <label for="rateSelect">Monitoring Rate</label>
-              <select id="rateSelect">
-                <option value="fast">Fast</option>
-                <option value="normal">Normal</option>
-                <option value="slow">Slow</option>
-                <option value="custom">Custom</option>
-              </select>
-            </div>
-            <div class="config-row">
-              <label for="protectionModeSelect">Protection Mode</label>
-              <select id="protectionModeSelect">
-                <option value="armed">Armed</option>
-                <option value="service">Service Mode</option>
-              </select>
-            </div>
-
-            <details class="advanced-config">
-              <summary>Advanced threshold and calibration</summary>
-              <div class="advanced-grid">
-                <div class="config-field">
-                  <label for="thresholdInput">FSR threshold</label>
-                  <input id="thresholdInput" type="text" inputmode="numeric" pattern="[0-9]*" value="1000">
-                </div>
-                <div class="config-field">
-                  <label for="samplingInput">Sampling ms</label>
-                  <input id="samplingInput" type="text" inputmode="numeric" pattern="[0-9]*" value="2000">
-                </div>
+            <div class="status-facts">
+              <div>
+                <span>Mode</span>
+                <strong id="protectionModeValue">--</strong>
               </div>
-
-              <div class="calibration-box">
-                <div>
-                  <strong>FSR Baseline Calibration</strong>
-                  <p id="calibrationStatus">Ready to sample the current unloaded force value.</p>
-                </div>
-                <div class="calibration-actions">
-                  <button id="calibrateBtn" type="button">Calibrate</button>
-                  <button id="applyRecommendedBtn" type="button" disabled>Apply Recommendation</button>
-                </div>
-                <div class="calibration-values">
-                  <span>Baseline <strong id="baselineValue">--</strong></span>
-                  <span>Recommended <strong id="recommendedThresholdValue">--</strong></span>
-                </div>
+              <div>
+                <span>Interrupt</span>
+                <strong id="lastInterruptValue">--</strong>
               </div>
-            </details>
-
-            <div class="form-actions">
-              <button id="applyConfigBtn" type="submit">Apply Runtime Config</button>
-              <span id="configStatus" class="config-status">ready</span>
             </div>
-          </form>
-        </section>
+          </section>
 
-        <section class="panel alarm-panel">
-          <div class="panel-title">
-            <div>
+          <section class="panel readings-panel">
+            <div class="section-head">
+              <h2>Live</h2>
+              <span id="environmentStatus" class="inline-state">--</span>
+            </div>
+            <div class="metric-grid">
+              <div class="metric primary-metric">
+                <span>Temp</span>
+                <strong id="tempValue">--</strong>
+              </div>
+              <div class="metric primary-metric">
+                <span>Humidity</span>
+                <strong id="humidityValue">--</strong>
+              </div>
+              <div class="metric">
+                <span>Light</span>
+                <strong id="lightValue">--</strong>
+              </div>
+              <div class="metric">
+                <span>Force</span>
+                <strong id="forceValue">--</strong>
+              </div>
+              <div class="metric">
+                <span>Pressure</span>
+                <strong id="pressureValue">--</strong>
+              </div>
+              <div class="metric">
+                <span>Gas</span>
+                <strong id="gasValue">--</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel trends-panel">
+            <div class="section-head">
+              <h2>Trends</h2>
+              <span>3 min</span>
+            </div>
+            <div class="trend-grid">
+              <div class="trend-card">
+                <div class="trend-head"><span>Temp</span><strong id="trendTempNow">--</strong></div>
+                <canvas id="trendTemp"></canvas>
+              </div>
+              <div class="trend-card">
+                <div class="trend-head"><span>Humidity</span><strong id="trendHumidityNow">--</strong></div>
+                <canvas id="trendHumidity"></canvas>
+              </div>
+              <div class="trend-card">
+                <div class="trend-head"><span>Light</span><strong id="trendLightNow">--</strong></div>
+                <canvas id="trendLight"></canvas>
+              </div>
+              <div class="trend-card">
+                <div class="trend-head"><span>Force</span><strong id="trendForceNow">--</strong></div>
+                <canvas id="trendForce"></canvas>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="side-column">
+          <section class="panel alarm-panel">
+            <div class="section-head">
               <h2>Alarm Log</h2>
-              <p class="panel-note">Current session tamper events</p>
             </div>
-          </div>
-          <div id="alarmLog" class="event-log">
-            <p class="empty-log">No alarms in this session.</p>
-          </div>
-        </section>
+            <div id="alarmLog" class="event-log">
+              <p class="empty-log">No alarms</p>
+            </div>
+          </section>
+
+          <section class="panel config-panel">
+            <div class="section-head">
+              <h2>Runtime</h2>
+              <button id="readConfigBtn" type="button">Read Config</button>
+            </div>
+
+            <form id="configForm" class="config-form">
+              <div class="config-row">
+                <label for="protectionModeSelect">Mode</label>
+                <select id="protectionModeSelect">
+                  <option value="armed">Armed</option>
+                  <option value="service">Service</option>
+                </select>
+              </div>
+              <div class="config-row">
+                <label for="rateSelect">Sampling rate</label>
+                <select id="rateSelect">
+                  <option value="fast">Fast (500 ms)</option>
+                  <option value="normal">Normal (2000 ms)</option>
+                  <option value="slow">Slow (5000 ms)</option>
+                </select>
+              </div>
+
+              <details class="advanced-config">
+                <summary>Limits</summary>
+                <div class="advanced-grid">
+                  <div class="config-field">
+                    <label for="thresholdInput">FSR raw</label>
+                    <input id="thresholdInput" type="text" inputmode="numeric" pattern="[0-9]*" value="1000">
+                  </div>
+                  <div class="config-field">
+                    <label for="samplingInput">Sampling ms</label>
+                    <input id="samplingInput" type="text" inputmode="numeric" pattern="[0-9]*" value="2000">
+                  </div>
+                  <div class="config-field">
+                    <label for="lightHighInput">Light raw</label>
+                    <input id="lightHighInput" type="text" inputmode="numeric" pattern="[0-9]*" value="2000">
+                  </div>
+                  <div class="config-field">
+                    <label for="tempHighInput">Temp C</label>
+                    <input id="tempHighInput" type="text" inputmode="decimal" value="30.00">
+                  </div>
+                  <div class="config-field">
+                    <label for="humidityHighInput">Humidity %</label>
+                    <input id="humidityHighInput" type="text" inputmode="decimal" value="70.00">
+                  </div>
+                </div>
+              </details>
+
+              <div class="form-actions">
+                <span id="configStatus" class="config-status">ready</span>
+              </div>
+            </form>
+          </section>
+
+          <details id="debugPanel" class="debug-panel">
+            <summary>
+              <span>Serial</span>
+              <small id="debugSummary">0 lines</small>
+            </summary>
+            <section class="serial-panel">
+              <div class="section-head">
+                <h2>Raw Log</h2>
+                <button id="clearLogBtn" type="button">Clear</button>
+              </div>
+              <pre id="rawLog" aria-live="polite"></pre>
+            </section>
+          </details>
+        </aside>
       </section>
-
-      <details id="debugPanel" class="debug-panel">
-        <summary>
-          <span>Debug serial and driver diagnostics</span>
-          <small id="debugSummary">raw serial paused while closed</small>
-        </summary>
-        <section class="debug-grid">
-          <div class="panel diagnostics-panel">
-            <dl class="diagnostics-grid">
-              <div><dt>Serial</dt><dd id="diagConnection">--</dd></div>
-              <div><dt>Last Command</dt><dd id="diagLastCommand">--</dd></div>
-              <div><dt>Read Counts</dt><dd id="diagReadCounts">--</dd></div>
-              <div><dt>Environment</dt><dd id="diagEnvironment">--</dd></div>
-              <div><dt>Gas</dt><dd id="diagGas">--</dd></div>
-              <div><dt>Config Sync</dt><dd id="diagConfigSync">--</dd></div>
-            </dl>
-          </div>
-
-          <div class="panel serial-panel">
-            <div class="panel-title">
-              <h2>Raw Serial</h2>
-              <button id="clearLogBtn" type="button">Clear</button>
-            </div>
-            <pre id="rawLog" aria-live="polite"></pre>
-          </div>
-        </section>
-      </details>
     </main>
     <script src="/static/app.js"></script>
   </body>
