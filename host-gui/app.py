@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Local browser GUI for the PESP two-board demo.
 
-The app reads the sensor-node USB serial console and exposes a small web UI.
-It intentionally uses only Python stdlib plus pyserial so it can run on the
-coursework machine without a frontend build step.
+The app connects to the base-station USB serial endpoint. The base station
+talks to the sensor node over the board-to-board UART protocol.
 """
 
 from __future__ import annotations
@@ -43,6 +42,11 @@ SAMPLE_ERR_RE = re.compile(
     r"thresh=(?P<threshold>\d+) env=ERR light=(?P<light>\d+|ERR)$"
 )
 LINK_RE = re.compile(r"^\[link-rx\] type=(?P<type>0x[0-9a-fA-F]+) cmd=(?P<cmd>.+)$")
+BASE_TX_RE = re.compile(r"^\[tx\] (?P<cmd>[A-Z_]+)(?:=(?P<payload>.*))?$")
+BASE_DATA_RE = re.compile(r"^\[data\] (?P<payload>.+)$")
+BASE_FORCE_RE = re.compile(r"^\[force\] (?P<payload>.+)$")
+BASE_EVENT_RE = re.compile(r"^\[event\] (?P<payload>EVENT=.*)$")
+BASE_CONFIG_RE = re.compile(r"^\[config\] (?P<payload>(?:OK,)?[A-Z_]+=.*)$")
 CONFIG_RE = re.compile(r"^\[config\] (?P<key>[a-z_]+)=(?P<value>-?\d+(?:\.\d+)?)$")
 EVENT_LATCH_RE = re.compile(r"^\[event\] latched force=(?P<force>\d+) threshold=(?P<threshold>\d+)$")
 EVENT_SOURCE_RE = re.compile(
@@ -71,6 +75,31 @@ def parse_number(text: str) -> int | float | None:
     return int(text)
 
 
+def parse_float_value(text: str) -> float | None:
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def parse_int_value(text: str) -> int | None:
+    value = parse_float_value(text)
+    if value is None:
+        return None
+    return int(value)
+
+
+def parse_payload_fields(payload: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for part in payload.split(","):
+        if part == "OK" or "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        fields[key.strip().upper()] = value.strip()
+    return fields
+
+
 def alarm_label_for_source(source: str | None) -> str:
     return {
         "FORCE": "Force Alert",
@@ -91,6 +120,10 @@ def alarm_name_for_source(source: str | None) -> str:
 
 def detect_default_serial_port() -> str:
     ports = list(list_ports.comports())
+    for port in ports:
+        haystack = f"{port.device} {port.description} {port.hwid}".lower()
+        if "case guardian" in haystack or "base station" in haystack:
+            return port.device
     for port in ports:
         haystack = f"{port.device} {port.description} {port.hwid}".lower()
         if "usbmodem" in haystack or "pico" in haystack:
@@ -133,7 +166,7 @@ class DashboardState:
             "sampling_ms": 2000,
             "interrupt": True,
             "service": False,
-            "light_high": 2000,
+            "light_high": 12000,
             "temp_high": 30.0,
             "humidity_high": 70.0,
         },
@@ -258,6 +291,149 @@ class AppModel:
         })
         self.state.interrupt["events"] = []
 
+    def _record_base_command_locked(self, command: str, command_type: str | None = None) -> None:
+        self.state.base["last_command"] = command
+        self.state.base["last_command_type"] = command_type
+        self.state.base["last_command_ms"] = now_ms()
+        self.state.base["polling"] = True
+        if command == "READ_ALL":
+            self.state.base["read_all_count"] += 1
+        elif command == "READ_FORCE":
+            self.state.base["read_force_count"] += 1
+        elif command == "READ_EVENT":
+            self.state.base["read_event_count"] += 1
+            self.state.interrupt["last_event_text"] = "Base requested READ_EVENT"
+            self.record_interrupt_time()
+            self.add_event_log("Base READ_EVENT", "driver", armed_only=True)
+        elif command == "CLEAR_EVENT":
+            self.state.base["clear_event_count"] += 1
+            self.state.interrupt["last_event_text"] = "Base sent CLEAR_EVENT"
+            self.add_event_log("Cleared by base", "clear", armed_only=True)
+        elif command.startswith("SET_FORCE_THRESHOLD="):
+            value = parse_int_value(command.split("=", 1)[1])
+            if value is not None:
+                self.state.base["config"]["force_threshold"] = value
+        elif command.startswith("SET_SAMPLING_RATE="):
+            value = parse_int_value(command.split("=", 1)[1])
+            if value is not None:
+                self.state.base["config"]["sampling_ms"] = value
+        elif command.startswith("ENABLE_INTERRUPT="):
+            self.state.base["config"]["interrupt"] = command.endswith("=1")
+        elif command.startswith("SERVICE_MODE="):
+            enabled = command.endswith("=1")
+            self.state.base["config"]["service"] = enabled
+            self.state.base["config"]["interrupt"] = not enabled
+            if enabled:
+                self.clear_alarm_state_locked()
+
+    def _apply_config_fields_locked(self, fields: dict[str, str]) -> None:
+        config = self.state.base["config"]
+        if "FORCE_THRESHOLD" in fields:
+            value = parse_int_value(fields["FORCE_THRESHOLD"])
+            if value is not None:
+                config["force_threshold"] = value
+                self.state.sensor["threshold"] = value
+        if "SAMPLING_MS" in fields:
+            value = parse_int_value(fields["SAMPLING_MS"])
+            if value is not None:
+                config["sampling_ms"] = value
+        if "INTERRUPT" in fields:
+            config["interrupt"] = fields["INTERRUPT"] not in {"0", "false", "False"}
+        if "SERVICE" in fields:
+            service_enabled = fields["SERVICE"] not in {"0", "false", "False"}
+            config["service"] = service_enabled
+            if service_enabled:
+                self.clear_alarm_state_locked()
+        if "LIGHT_HIGH" in fields:
+            value = parse_int_value(fields["LIGHT_HIGH"])
+            if value is not None:
+                config["light_high"] = value
+        if "TEMP_HIGH" in fields:
+            value = parse_float_value(fields["TEMP_HIGH"])
+            if value is not None:
+                config["temp_high"] = value
+        if "HUMIDITY_HIGH" in fields:
+            value = parse_float_value(fields["HUMIDITY_HIGH"])
+            if value is not None:
+                config["humidity_high"] = value
+
+    def _apply_reading_fields_locked(self, fields: dict[str, str]) -> None:
+        sensor = self.state.sensor
+        if "FORCE" in fields and fields["FORCE"] != "ERR":
+            value = parse_int_value(fields["FORCE"])
+            if value is not None:
+                sensor["force"] = value
+        if "EVENT" in fields:
+            sensor["event"] = fields["EVENT"] not in {"0", "false", "False"}
+            self.state.interrupt["state"] = "latched" if sensor["event"] else "idle"
+            if sensor["event"]:
+                self.state.interrupt["last_latched_ms"] = self.state.last_update_ms
+                self.record_interrupt_time()
+        if "TEMP" in fields:
+            sensor["temperature_c"] = None if fields["TEMP"] == "ERR" else parse_float_value(fields["TEMP"])
+        if "HUM" in fields:
+            sensor["humidity_pct"] = None if fields["HUM"] == "ERR" else parse_float_value(fields["HUM"])
+        if "PRESS" in fields:
+            value = parse_float_value(fields["PRESS"])
+            sensor["pressure_pa"] = None if fields["PRESS"] == "ERR" or value is None else value * 100.0
+        if "GAS" in fields:
+            value = parse_int_value(fields["GAS"])
+            sensor["gas_ohms"] = None if fields["GAS"] == "ERR" or value is None else value
+            sensor["gas_status"] = "err" if fields["GAS"] == "ERR" or value is None else "ok"
+        if "LIGHT" in fields:
+            try:
+                sensor["light"] = parse_number(fields["LIGHT"])
+            except ValueError:
+                sensor["light"] = None
+        if {"TEMP", "HUM", "PRESS"} & set(fields):
+            sensor["environment_ok"] = (
+                sensor["temperature_c"] is not None
+                and sensor["humidity_pct"] is not None
+                and sensor["pressure_pa"] is not None
+            )
+        self._apply_config_fields_locked(fields)
+
+    def _apply_base_event_locked(self, fields: dict[str, str]) -> None:
+        self._apply_reading_fields_locked(fields)
+        if fields.get("EVENT") not in {"1", "true", "True"}:
+            return
+
+        source = fields.get("SOURCE", "FORCE")
+        config = self.state.base["config"]
+        if source == "LIGHT":
+            value = fields.get("EVENT_LIGHT") or fields.get("LIGHT") or "--"
+            threshold = str(config.get("light_high", "--"))
+        elif source == "TEMP":
+            value = fields.get("EVT_T_C") or fields.get("TEMP") or "--"
+            threshold = f"{float(config.get('temp_high', 0.0)):.2f}"
+        elif source == "HUMIDITY":
+            value = fields.get("EVT_H_PCT") or fields.get("HUM") or "--"
+            threshold = f"{float(config.get('humidity_high', 0.0)):.2f}"
+        else:
+            source = "FORCE"
+            value = fields.get("EVENT_FORCE") or fields.get("FORCE") or "--"
+            threshold = fields.get("THRESH") or str(config.get("force_threshold", "--"))
+
+        detail = f"{alarm_name_for_source(source)} {value} >= {threshold}"
+        self.state.interrupt.update({
+            "state": "latched",
+            "last_force": int(fields["FORCE"]) if fields.get("FORCE", "").isdigit() else None,
+            "threshold": int(threshold) if threshold.isdigit() else None,
+            "last_latched_ms": self.state.last_update_ms,
+            "last_event_text": detail,
+            "alarm_source": source,
+            "alarm_label": alarm_label_for_source(source),
+            "alarm_detail": detail,
+        })
+        self.record_interrupt_time()
+        self.add_event_log(
+            detail,
+            "tamper" if source == "FORCE" else "environment",
+            force=int(value) if value.isdigit() else None,
+            threshold=int(threshold) if threshold.isdigit() else None,
+            armed_only=True,
+        )
+
     def apply_local_mode(self, armed: bool) -> None:
         with self.lock:
             self.state.base["config"]["interrupt"] = armed
@@ -330,29 +506,36 @@ class AppModel:
         link_match = LINK_RE.match(line)
         if link_match:
             command = link_match.group("cmd")
-            self.state.base["last_command"] = command
-            self.state.base["last_command_type"] = link_match.group("type")
-            self.state.base["last_command_ms"] = now_ms()
-            self.state.base["polling"] = True
-            if command == "READ_ALL":
-                self.state.base["read_all_count"] += 1
-            elif command == "READ_FORCE":
-                self.state.base["read_force_count"] += 1
-            elif command == "READ_EVENT":
-                self.state.base["read_event_count"] += 1
-                self.state.interrupt["last_event_text"] = "Base requested READ_EVENT"
-                self.record_interrupt_time()
-                self.add_event_log("Base READ_EVENT", "driver", armed_only=True)
-            elif command == "CLEAR_EVENT":
-                self.state.base["clear_event_count"] += 1
-                self.state.interrupt["last_event_text"] = "Base sent CLEAR_EVENT"
-                self.add_event_log("Cleared by base", "clear", armed_only=True)
-            elif command.startswith("SET_FORCE_THRESHOLD="):
-                self.state.base["config"]["force_threshold"] = int(command.split("=", 1)[1])
-            elif command.startswith("SET_SAMPLING_RATE="):
-                self.state.base["config"]["sampling_ms"] = int(command.split("=", 1)[1])
-            elif command.startswith("ENABLE_INTERRUPT="):
-                self.state.base["config"]["interrupt"] = command.endswith("=1")
+            self._record_base_command_locked(command, link_match.group("type"))
+            return
+
+        base_tx_match = BASE_TX_RE.match(line)
+        if base_tx_match:
+            command = base_tx_match.group("cmd")
+            payload = base_tx_match.group("payload")
+            if payload is not None:
+                command = f"{command}={payload}"
+            self._record_base_command_locked(command)
+            return
+
+        data_match = BASE_DATA_RE.match(line)
+        if data_match:
+            self._apply_reading_fields_locked(parse_payload_fields(data_match.group("payload")))
+            return
+
+        force_match = BASE_FORCE_RE.match(line)
+        if force_match:
+            self._apply_reading_fields_locked(parse_payload_fields(force_match.group("payload")))
+            return
+
+        base_event_match = BASE_EVENT_RE.match(line)
+        if base_event_match:
+            self._apply_base_event_locked(parse_payload_fields(base_event_match.group("payload")))
+            return
+
+        base_config_match = BASE_CONFIG_RE.match(line)
+        if base_config_match:
+            self._apply_config_fields_locked(parse_payload_fields(base_config_match.group("payload")))
             return
 
         config_match = CONFIG_RE.match(line)

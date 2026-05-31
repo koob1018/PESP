@@ -10,8 +10,8 @@ The system uses:
 
 ## Quick Start: Host GUI
 
-Use this path when the firmware is already flashed and the sensor-node USB serial
-console is connected to the computer.
+Use this path when both firmware images are already flashed and the base-station
+USB serial port is connected to the computer.
 
 ```bash
 git clone https://github.com/koob1018/PESP.git
@@ -30,8 +30,8 @@ Open:
 http://127.0.0.1:8765
 ```
 
-Then select the Pico serial port in the GUI and click `Connect`. On macOS the
-port usually looks like `/dev/cu.usbmodemXXXX`.
+Then select the base-station serial port in the GUI and click `Connect`. On
+macOS the port usually looks like `/dev/cu.usbmodemXXXX`.
 
 If you already know the serial port, you can autoconnect:
 
@@ -39,7 +39,8 @@ If you already know the serial port, you can autoconnect:
 python3 host-gui/app.py --serial /dev/cu.usbmodemXXXX --port 8765
 ```
 
-Without `--serial`, the app tries to auto-detect a Pico/USB modem serial port.
+Without `--serial`, the app tries to auto-detect the base-station USB serial
+port first, then falls back to a Pico/USB modem serial port.
 
 ## Repository Layout
 
@@ -47,7 +48,6 @@ Without `--serial`, the app tries to auto-detect a Pico/USB modem serial port.
 base-station/   Zephyr base-station firmware and sensor-node driver
 sensor-node/    Pico SDK sensor-node firmware
 host-gui/       Python stdlib + pyserial local browser dashboard
-docs/           Protocol, hardware, verification, and design notes
 tests/          Protocol frame tests
 ```
 
@@ -108,6 +108,5 @@ base-station, then loads the base-station firmware with `picotool`.
 ## More Detail
 
 - Host GUI: `host-gui/README.md`
-- Hardware wiring: `docs/hardware.md`
-- UART protocol: `docs/protocol.md`
-- Exhibit-case design: `docs/exhibit-case-guardian.md`
+- Sensor node firmware: `sensor-node/README.md`
+- Base station firmware: `base-station/README.md`

@@ -38,6 +38,10 @@ struct sensor_node_driver_config {
     uint32_t sampling_ms;
     uint16_t force_threshold;
     bool interrupt_enabled;
+    bool service_mode;
+    uint16_t light_high_threshold;
+    int32_t temp_high_centi_c;
+    uint32_t humidity_high_milli_pct;
 };
 
 int sensor_node_driver_start(const struct device *dev);
@@ -49,6 +53,10 @@ int sensor_node_driver_clear_event(const struct device *dev);
 int sensor_node_driver_set_force_threshold(const struct device *dev, uint16_t threshold);
 int sensor_node_driver_set_sampling_interval(const struct device *dev, uint32_t sampling_ms);
 int sensor_node_driver_enable_interrupt(const struct device *dev, bool enabled);
+int sensor_node_driver_set_light_high(const struct device *dev, uint16_t threshold);
+int sensor_node_driver_set_temp_high(const struct device *dev, const char *threshold_c);
+int sensor_node_driver_set_humidity_high(const struct device *dev, const char *threshold_pct);
+int sensor_node_driver_set_service_mode(const struct device *dev, bool enabled);
 int sensor_node_driver_read_config(const struct device *dev);
 bool sensor_node_driver_get_latest_reading(const struct device *dev, struct sensor_node_driver_reading *reading);
 bool sensor_node_driver_get_latest_event(const struct device *dev, struct sensor_node_driver_event *event);

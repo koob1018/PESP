@@ -36,6 +36,10 @@
 #define CMD_SET_SAMPLING_RATE 0x20
 #define CMD_SET_FORCE_THRESHOLD 0x21
 #define CMD_ENABLE_INTERRUPT 0x22
+#define CMD_SET_LIGHT_HIGH 0x23
+#define CMD_SET_TEMP_HIGH 0x24
+#define CMD_SET_HUMIDITY_HIGH 0x25
+#define CMD_SERVICE_MODE 0x26
 #define CMD_BASE_BOOTSEL 0x7E
 #define BASE_BOOTSEL_PAYLOAD "BOOTSEL"
 
@@ -64,6 +68,10 @@ struct sensor_node_driver_api {
     int (*set_force_threshold)(const struct device *dev, uint16_t threshold);
     int (*set_sampling_interval)(const struct device *dev, uint32_t sampling_ms);
     int (*enable_interrupt)(const struct device *dev, bool enabled);
+    int (*set_light_high)(const struct device *dev, uint16_t threshold);
+    int (*set_temp_high)(const struct device *dev, const char *threshold_c);
+    int (*set_humidity_high)(const struct device *dev, const char *threshold_pct);
+    int (*set_service_mode)(const struct device *dev, bool enabled);
     int (*read_config)(const struct device *dev);
     bool (*get_latest_reading)(const struct device *dev, struct sensor_node_driver_reading *reading);
     bool (*get_latest_event)(const struct device *dev, struct sensor_node_driver_event *event);
@@ -336,6 +344,7 @@ static bool parse_decimal_scaled_field(const char *payload, const char *key, uin
 }
 
 static void update_config_from_payload(const char *payload) {
+    int32_t scaled;
     uint32_t value;
     bool enabled;
 
@@ -349,6 +358,22 @@ static void update_config_from_payload(const char *payload) {
     }
     if (parse_bool_field(payload, "INTERRUPT=", &enabled)) {
         driver.latest_config.interrupt_enabled = enabled;
+        driver.latest_config.valid = true;
+    }
+    if (parse_bool_field(payload, "SERVICE=", &enabled)) {
+        driver.latest_config.service_mode = enabled;
+        driver.latest_config.valid = true;
+    }
+    if (parse_u32_field(payload, "LIGHT_HIGH=", &value)) {
+        driver.latest_config.light_high_threshold = (uint16_t)value;
+        driver.latest_config.valid = true;
+    }
+    if (parse_decimal_scaled_field(payload, "TEMP_HIGH=", 100U, &scaled)) {
+        driver.latest_config.temp_high_centi_c = scaled;
+        driver.latest_config.valid = true;
+    }
+    if (parse_decimal_scaled_field(payload, "HUMIDITY_HIGH=", 1000U, &scaled)) {
+        driver.latest_config.humidity_high_milli_pct = (uint32_t)scaled;
         driver.latest_config.valid = true;
     }
 }
@@ -779,6 +804,57 @@ static int sensor_node_driver_enable_interrupt_impl(const struct device *dev, bo
     return send_frame(&cmd);
 }
 
+static int sensor_node_driver_set_light_high_impl(const struct device *dev, uint16_t threshold) {
+    char payload[8];
+    struct sensor_command cmd = {
+        .type = CMD_SET_LIGHT_HIGH,
+        .payload = payload,
+        .label = "SET_LIGHT_HIGH",
+    };
+
+    ARG_UNUSED(dev);
+
+    snprintf(payload, sizeof(payload), "%u", threshold);
+    return send_frame(&cmd);
+}
+
+static int sensor_node_driver_set_temp_high_impl(const struct device *dev, const char *threshold_c) {
+    struct sensor_command cmd = {
+        .type = CMD_SET_TEMP_HIGH,
+        .payload = threshold_c == NULL ? "" : threshold_c,
+        .label = "SET_TEMP_HIGH",
+    };
+
+    ARG_UNUSED(dev);
+
+    return send_frame(&cmd);
+}
+
+static int sensor_node_driver_set_humidity_high_impl(const struct device *dev,
+                                                     const char *threshold_pct) {
+    struct sensor_command cmd = {
+        .type = CMD_SET_HUMIDITY_HIGH,
+        .payload = threshold_pct == NULL ? "" : threshold_pct,
+        .label = "SET_HUMIDITY_HIGH",
+    };
+
+    ARG_UNUSED(dev);
+
+    return send_frame(&cmd);
+}
+
+static int sensor_node_driver_set_service_mode_impl(const struct device *dev, bool enabled) {
+    struct sensor_command cmd = {
+        .type = CMD_SERVICE_MODE,
+        .payload = enabled ? "1" : "0",
+        .label = "SERVICE_MODE",
+    };
+
+    ARG_UNUSED(dev);
+
+    return send_frame(&cmd);
+}
+
 static int sensor_node_driver_read_config_impl(const struct device *dev) {
     ARG_UNUSED(dev);
 
@@ -857,6 +933,22 @@ int sensor_node_driver_enable_interrupt(const struct device *dev, bool enabled) 
     return sensor_node_driver_enable_interrupt_impl(dev, enabled);
 }
 
+int sensor_node_driver_set_light_high(const struct device *dev, uint16_t threshold) {
+    return sensor_node_driver_set_light_high_impl(dev, threshold);
+}
+
+int sensor_node_driver_set_temp_high(const struct device *dev, const char *threshold_c) {
+    return sensor_node_driver_set_temp_high_impl(dev, threshold_c);
+}
+
+int sensor_node_driver_set_humidity_high(const struct device *dev, const char *threshold_pct) {
+    return sensor_node_driver_set_humidity_high_impl(dev, threshold_pct);
+}
+
+int sensor_node_driver_set_service_mode(const struct device *dev, bool enabled) {
+    return sensor_node_driver_set_service_mode_impl(dev, enabled);
+}
+
 int sensor_node_driver_read_config(const struct device *dev) {
     return sensor_node_driver_read_config_impl(dev);
 }
@@ -885,6 +977,10 @@ static const struct sensor_node_driver_api sensor_node_api = {
     .set_force_threshold = sensor_node_driver_set_force_threshold_impl,
     .set_sampling_interval = sensor_node_driver_set_sampling_interval_impl,
     .enable_interrupt = sensor_node_driver_enable_interrupt_impl,
+    .set_light_high = sensor_node_driver_set_light_high_impl,
+    .set_temp_high = sensor_node_driver_set_temp_high_impl,
+    .set_humidity_high = sensor_node_driver_set_humidity_high_impl,
+    .set_service_mode = sensor_node_driver_set_service_mode_impl,
     .read_config = sensor_node_driver_read_config_impl,
     .get_latest_reading = sensor_node_driver_get_latest_reading_impl,
     .get_latest_event = sensor_node_driver_get_latest_event_impl,

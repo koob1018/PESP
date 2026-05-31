@@ -30,14 +30,26 @@ echo "[1/4] Checking picotool..."
 "$PICOTOOL" version
 
 echo "[2/4] Rebooting Pico into BOOTSEL..."
-"$PICOTOOL" reboot "${DEVICE_SELECTION[@]}" -f -u
+if [ ${#DEVICE_SELECTION[@]} -gt 0 ]; then
+  "$PICOTOOL" reboot "${DEVICE_SELECTION[@]}" -f -u
+else
+  "$PICOTOOL" reboot -f -u
+fi
 
 sleep 3
 
 echo "[3/4] Loading firmware: $FIRMWARE"
-"$PICOTOOL" load "$FIRMWARE" "${DEVICE_SELECTION[@]}"
+if [ ${#DEVICE_SELECTION[@]} -gt 0 ]; then
+  "$PICOTOOL" load "$FIRMWARE" "${DEVICE_SELECTION[@]}"
+else
+  "$PICOTOOL" load "$FIRMWARE"
+fi
 
 echo "[4/4] Rebooting Pico..."
-"$PICOTOOL" reboot "${DEVICE_SELECTION[@]}"
+if [ ${#DEVICE_SELECTION[@]} -gt 0 ]; then
+  "$PICOTOOL" reboot "${DEVICE_SELECTION[@]}"
+else
+  "$PICOTOOL" reboot
+fi
 
 echo "Done."

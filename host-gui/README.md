@@ -19,8 +19,8 @@ Then open:
 http://127.0.0.1:8765
 ```
 
-Select the sensor-node USB serial port in the GUI and click `Connect`. On macOS
-it usually looks like `/dev/cu.usbmodemXXXX`.
+Select the base-station USB serial port in the GUI and click `Connect`. On
+macOS it usually looks like `/dev/cu.usbmodemXXXX`.
 
 Without `--no-autoconnect`, the app tries to auto-detect a Pico/USB modem
 serial port. Use `--serial /dev/cu.usbmodemXXXX` to force a specific port.
@@ -35,7 +35,7 @@ The dashboard shows:
 - Tamper monitoring: FSR raw value, runtime threshold, event latch, and last interrupt time.
 - Recent trends: fixed-scale three-minute charts for temperature, humidity, light, and force.
 - Alarm Log: armed tamper events from the current GUI session.
-- Runtime Configuration: product controls for tamper sensitivity, monitoring rate, protection mode, and FSR baseline calibration.
+- Runtime Configuration: product controls for tamper sensitivity, monitoring rate, environmental limits, and protection mode.
 - Collapsed debug diagnostics and raw serial output for troubleshooting.
 
 ## Status Rules
@@ -58,7 +58,10 @@ The product controls are mapped onto the existing sensor-node runtime settings:
 | --- | --- |
 | Tamper Sensitivity | `SET_FORCE_THRESHOLD=<raw>` |
 | Monitoring Rate | `SET_SAMPLING_RATE=<ms>` |
-| Protection Mode | `ENABLE_INTERRUPT=0/1` |
+| Protection Mode | `SERVICE_MODE=0/1`, `ENABLE_INTERRUPT=0/1` |
+| Light Limit | `SET_LIGHT_HIGH=<raw>` |
+| Temperature Limit | `SET_TEMP_HIGH=<C>` |
+| Humidity Limit | `SET_HUMIDITY_HIGH=<percent>` |
 
 Presets:
 
@@ -69,13 +72,8 @@ Presets:
 - Normal monitoring: `2000 ms`
 - Slow monitoring: `5000 ms`
 
-`Calibrate` samples the current FSR value for 5 seconds, uses the median as the
-baseline, and recommends `baseline + 600` clamped to `300-3500`. The
-recommendation is shown to the user and is only applied after pressing
-`Apply Recommendation` and then `Apply Runtime Config`.
-
 ## Data Source
 
-The GUI reads the sensor-node USB console. The base-station remains USB-headless
-during normal operation; its Zephyr driver activity is visible through the
-framed command logs printed by the sensor-node.
+The GUI reads the base-station USB CDC serial port. The base station reads the
+sensor node over the framed UART protocol and publishes GUI-compatible live
+sample lines plus compact diagnostics.

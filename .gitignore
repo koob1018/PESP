@@ -10,6 +10,7 @@ venv/
 .vscode/
 
 base-station/build/
+base-station/build-test/
 sensor-node/build/
 
 *.uf2
@@ -20,3 +21,4 @@ sensor-node/build/
 *.dis
 
 docs/
+outputs/

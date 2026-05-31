@@ -4,21 +4,23 @@ Zephyr firmware for the room-monitoring base station demo.
 
 ## Current purpose
 - Communicate with the sensor node over UART0 using framed packets.
-- Configure force threshold, sampling interval, and interrupt enable state through the Zephyr driver API.
+- Expose a USB CDC serial endpoint for the host GUI.
+- Forward GUI runtime commands to the sensor node through the Zephyr driver API.
+- Configure force threshold, sampling interval, light/temperature/humidity limits, interrupt enable state, and service mode.
 - Poll `READ_ALL` and `READ_FORCE` for live data.
 - Monitor the dedicated event input on GPIO15.
 - Fetch and clear latched sensor-node events with `READ_EVENT` and `CLEAR_EVENT`.
-- Keep the final image headless on USB; verify the board-to-board behavior through the sensor-node console.
+- Emit GUI-compatible sample lines so the host app only needs to connect to the base station.
 
 ## Source layout
 - `src/main.c`: small Zephyr demo application that starts and services the sensor-node driver.
 - `src/driver/`: active Zephyr driver-style abstraction for UART framing, GPIO15 event handling, polling, runtime configuration, and latest-value caching.
 
 ## Runtime diagnostics
-- The final base-station image has USB CDC disabled for stable macOS runtime/flashing behavior.
-- Runtime behavior is verified from the sensor-node USB console, where base commands appear as `[link-rx]` lines.
-- Expected command flow after base reboot: `SET_FORCE_THRESHOLD`, `SET_SAMPLING_RATE`, `ENABLE_INTERRUPT`, `READ_CONFIG`, then alternating `READ_ALL` and `READ_FORCE`.
-- Expected event flow after pressing the FSR: sensor-node logs `[event] latched ...`, then receives `READ_EVENT`, receives `CLEAR_EVENT`, and logs `[event] cleared`.
+- The host GUI connects to the base-station USB CDC serial port.
+- Driver traffic appears as `[tx]`, `[data]`, `[force]`, `[event]`, and `[config]` lines on that port.
+- Expected command flow after base reboot: force threshold, sampling interval, light/temperature/humidity limits, service mode, interrupt enable, `READ_CONFIG`, then alternating `READ_ALL` and `READ_FORCE`.
+- Expected event flow after pressing the FSR: sensor-node latches an event, GPIO15 goes active, base-station sends `READ_EVENT`, then clears the event with `CLEAR_EVENT`.
 
 ## Flashing
 - Automatic flashing has been verified with `./flash-base.sh`. Run:
@@ -38,5 +40,5 @@ picotool reboot --ser 3CFF0B54ACC69F66
 
 ## Notes
 - Keep this endpoint Zephyr only.
-- Wiring details are recorded in `../docs/hardware.md`.
-- Protocol details are recorded in `../docs/protocol.md`.
+- Host PC talks to the base station over USB serial.
+- Base station talks to the sensor node over the board-to-board UART frame protocol.

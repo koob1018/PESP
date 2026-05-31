@@ -31,7 +31,7 @@
 #define DEFAULT_FORCE_THRESHOLD 1000
 #define FORCE_HYSTERESIS 50
 #define FORCE_EVENT_SAMPLE_MS 10
-#define DEFAULT_LIGHT_HIGH_THRESHOLD 2000
+#define DEFAULT_LIGHT_HIGH_THRESHOLD 12000
 #define LIGHT_RAW_MAX 65535U
 #define LIGHT_HIGH_HYSTERESIS 200
 #define DEFAULT_TEMP_HIGH_C 30.0f
@@ -60,6 +60,10 @@
 #define CMD_SET_SAMPLING_RATE 0x20
 #define CMD_SET_FORCE_THRESHOLD 0x21
 #define CMD_ENABLE_INTERRUPT 0x22
+#define CMD_SET_LIGHT_HIGH 0x23
+#define CMD_SET_TEMP_HIGH 0x24
+#define CMD_SET_HUMIDITY_HIGH 0x25
+#define CMD_SERVICE_MODE 0x26
 #define CMD_BASE_BOOTSEL 0x7E
 
 enum frame_rx_state {
@@ -660,21 +664,23 @@ static void handle_read_all(void) {
 
     if (have_bme && have_veml) {
         n = snprintf(out, sizeof(out),
-                     "TEMP=%.2f,HUM=%.2f,PRESS=%.2f,GAS=%s,LIGHT=%u,FORCE=%u,EVENT=%u\n",
+                     "TEMP=%.2f,HUM=%.2f,PRESS=%.2f,GAS=%s,LIGHT=%u,FORCE=%u,EVENT=%u,SERVICE=%u\n",
                      temp, hum, pres / 100.0f, gas_text, (unsigned)light_raw, (unsigned)force,
-                     event_latched ? 1U : 0U);
+                     event_latched ? 1U : 0U, service_mode ? 1U : 0U);
     } else if (have_bme) {
         n = snprintf(out, sizeof(out),
-                     "TEMP=%.2f,HUM=%.2f,PRESS=%.2f,GAS=%s,LIGHT=ERR,FORCE=%u,EVENT=%u\n",
-                     temp, hum, pres / 100.0f, gas_text, (unsigned)force, event_latched ? 1U : 0U);
+                     "TEMP=%.2f,HUM=%.2f,PRESS=%.2f,GAS=%s,LIGHT=ERR,FORCE=%u,EVENT=%u,SERVICE=%u\n",
+                     temp, hum, pres / 100.0f, gas_text, (unsigned)force, event_latched ? 1U : 0U,
+                     service_mode ? 1U : 0U);
     } else if (have_veml) {
         n = snprintf(out, sizeof(out),
-                     "TEMP=ERR,HUM=ERR,PRESS=ERR,GAS=ERR,LIGHT=%u,FORCE=%u,EVENT=%u\n",
-                     (unsigned)light_raw, (unsigned)force, event_latched ? 1U : 0U);
+                     "TEMP=ERR,HUM=ERR,PRESS=ERR,GAS=ERR,LIGHT=%u,FORCE=%u,EVENT=%u,SERVICE=%u\n",
+                     (unsigned)light_raw, (unsigned)force, event_latched ? 1U : 0U,
+                     service_mode ? 1U : 0U);
     } else {
         n = snprintf(out, sizeof(out),
-                     "TEMP=ERR,HUM=ERR,PRESS=ERR,GAS=ERR,LIGHT=ERR,FORCE=%u,EVENT=%u\n",
-                     (unsigned)force, event_latched ? 1U : 0U);
+                     "TEMP=ERR,HUM=ERR,PRESS=ERR,GAS=ERR,LIGHT=ERR,FORCE=%u,EVENT=%u,SERVICE=%u\n",
+                     (unsigned)force, event_latched ? 1U : 0U, service_mode ? 1U : 0U);
     }
 
     if (n > 0) {
@@ -692,7 +698,8 @@ static void handle_command(const char *cmd) {
     } else if (strcmp(cmd, "READ_FORCE") == 0) {
         uint16_t force = read_force_raw();
         update_force_event(force);
-        snprintf(out, sizeof(out), "FORCE=%u,EVENT=%u\n", (unsigned)force, event_latched ? 1U : 0U);
+        snprintf(out, sizeof(out), "FORCE=%u,EVENT=%u,SERVICE=%u\n",
+                 (unsigned)force, event_latched ? 1U : 0U, service_mode ? 1U : 0U);
         send_line(out);
     } else if (strcmp(cmd, "READ_ALL") == 0) {
         handle_read_all();
@@ -891,6 +898,18 @@ static void handle_frame_command(uint8_t type, const uint8_t *payload, uint8_t l
         break;
     case CMD_ENABLE_INTERRUPT:
         n = snprintf(cmd, sizeof(cmd), "ENABLE_INTERRUPT=%.*s", len, payload);
+        break;
+    case CMD_SET_LIGHT_HIGH:
+        n = snprintf(cmd, sizeof(cmd), "SET_LIGHT_HIGH=%.*s", len, payload);
+        break;
+    case CMD_SET_TEMP_HIGH:
+        n = snprintf(cmd, sizeof(cmd), "SET_TEMP_HIGH=%.*s", len, payload);
+        break;
+    case CMD_SET_HUMIDITY_HIGH:
+        n = snprintf(cmd, sizeof(cmd), "SET_HUMIDITY_HIGH=%.*s", len, payload);
+        break;
+    case CMD_SERVICE_MODE:
+        n = snprintf(cmd, sizeof(cmd), "SERVICE_MODE=%.*s", len, payload);
         break;
     default:
         n = snprintf(cmd, sizeof(cmd), "UNKNOWN_FRAME_0x%02x", type);
